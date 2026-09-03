@@ -1,3 +1,31 @@
+[project]
+name = "tnp-crop"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+  "hydra-core>=1.3.2",
+  "hydra-colorlog>=1.2.0",
+  "rootutils",
+  "rich",
+  "python-dotenv",
+  "requests>=2.34.2",
+  "pandas>=2.3.3",
+]
+
+[project.optional-dependencies]
+train = [
+  "torch>=2.2",
+  "pytorch-lightning>=2.2",
+  "torchmetrics>=1.3",
+]
+data = [
+    "requests>=2.34.2",
+]
+dev = [
+  "pytest",
+  "pre-commit",
+]
+
 [tool.pytest.ini_options]
 addopts = [
   "--color=yes",
@@ -14,7 +42,6 @@ markers = [
   "slow: slow tests",
 ]
 minversion = "6.0"
-testpaths = "tests/"
 
 [tool.coverage.report]
 exclude_lines = [

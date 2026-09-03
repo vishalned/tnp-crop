@@ -9,6 +9,15 @@ hydra-core==1.3.2
 hydra-colorlog==1.2.0
 hydra-optuna-sweeper==1.2.0
 
+# --------- data pipeline & soil --------- #
+requests
+pandas
+numpy
+pyyaml
+scikit-learn
+joblib
+matplotlib
+
 # --------- loggers --------- #
 # wandb
 # neptune-client
