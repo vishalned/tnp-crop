@@ -1,0 +1,12 @@
+_target_: src.data.tnp_datamodule.TNPDataModule
+batch_size: 16
+num_modalities: 6
+min_context: 5
+max_context: 40
+min_target: 5
+max_target: 40
+num_train_batches: 500
+num_val_batches: 50
+num_test_batches: 50
+num_workers: 0
+seed: 0

@@ -21,8 +21,9 @@ uv sync --all-extras       # everything
 
 ### Running code
 ```bash
-uv run python src/train.py experiment=example
-uv run python -m src.data_pipeline.soil.run   # use -m for nested scripts inside src/
+uv run python src/train.py experiment=tnp_synthetic
+uv run python -m src.data_pipeline.soil.generate_soilgrids_soil_file -lon 6.656 -lat 52.966
+uv run python -m src.data_pipeline.weather.generate_weather_file -lon 6.656 -lat 52.966 --start-date 2000-01-01 --end-date 2023-12-31
 ```
 
 ### Adding a package

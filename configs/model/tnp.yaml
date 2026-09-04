@@ -1,0 +1,31 @@
+_target_: src.models.tnp_module.TNPLitModule
+
+optimizer:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.0003
+  weight_decay: 0.0
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _partial_: true
+  mode: min
+  factor: 0.5
+  patience: 10
+
+net:
+  _target_: src.models.components.tnpd.TNPD
+  dim_y: 1
+  d_model: 64
+  emb_depth: 3
+  dim_feedforward: 128
+  nhead: 4
+  dropout: 0.1
+  num_layers: 4
+  num_modalities: ${data.num_modalities}
+  dim_modality: 16
+  num_time_freqs: 8
+  bound_std: false
+
+# compile model for faster training with pytorch 2.0
+compile: false
