@@ -9,6 +9,11 @@ from src.data_pipeline.weather.utils_weather.default_weather_variables import (
     default_openmeteo_model,
 )
 
+'''
+Columns returned by OpenMeteo - 
+'LAT', 'LON', 'ELEV', 'IRRAD', 'TMIN', 'TMAX', 'VAP', 'RAIN', 'E0', 'ES0', 'ET0', 'WIND', 'TEMP', 'DAY'
+'''
+
 
 def request_openmeteo_weather(
     latitude: float,
@@ -46,6 +51,10 @@ def get_df_weather(
     one row per day, restricted to `default_weather_variables()` and
     optionally clipped to [start_date, end_date].
     """
+    # we convert it to a format that pcse requires i.e the datetime object type.
+    start_date = datetime.date(*map(int, start_date.split("-")))
+    end_date = datetime.date(*map(int, end_date.split("-")))
+
     wdp = request_openmeteo_weather(
         latitude=latitude,
         longitude=longitude,
