@@ -11,6 +11,27 @@ def default_zs():
     return zmins, zmaxs
 
 
+def default_soilgrid_d_factors():
+    """Fixed ISRIC SoilGrids v2.0 conversion factors: raw mapped value /
+    factor = value in the variable's target physical unit.
+
+    The SoilGrids REST API (`soilgrids.py`) reports this per response as
+    `unit_measure.d_factor` and `get_df_soilgrids` divides by it dynamically.
+    Earth Engine's `sample()` doesn't return that metadata, only the raw
+    mapped integers -- these are the same constants ISRIC publishes for the
+    product, used to bring GEE-sourced values into the same physical units.
+    """
+    return {
+        "bdod": 100,      # cg/cm3 -> kg/dm3 (g/cm3)
+        "clay": 10,       # g/kg -> g/100g (%)
+        "nitrogen": 100,  # cg/kg -> g/kg
+        "phh2o": 10,      # pH*10 -> pH
+        "sand": 10,       # g/kg -> g/100g (%)
+        "silt": 10,       # g/kg -> g/100g (%)
+        "soc": 10,        # dg/kg -> g/kg
+    }
+
+
 def default_som_content():
     """
     Default soil organic matter content, it is assumed to be 58%

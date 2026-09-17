@@ -1,16 +1,64 @@
 import math
+import os
 from typing import Optional
 
 import pandas as pd
+import rootutils
+from omegaconf import DictConfig, OmegaConf
 from pcse.base import ParameterProvider
 from pcse.input import DummySoilDataProvider, WOFOST81SiteDataProvider_Classic, YAMLCropDataProvider
 from pcse.util import Afgen
 
-from src.data_pipeline.weather.utils_weather.openmeteo_weather import weather_provider_to_dataframe
-from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import (
-    default_bulk_density,
-    default_site_parameters,
+from src.data_pipeline.soil.utils_soil.classic_waterbalance_soil import (
+    collapse_to_root_zone_bucket,
+    gee_soil_result_to_dataframe,
 )
+from src.data_pipeline.weather.utils_weather.openmeteo_weather import weather_provider_to_dataframe
+from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import default_site_parameters
+
+
+_root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+_DEFAULT_GEE_SOIL_CONFIG = os.path.join(str(_root), "configs", "data_pipeline", "soil", "gee_soil.yaml")
+
+
+def ensure_ee_initialized() -> None:
+    """Initialize the Earth Engine client if it isn't already (idempotent).
+    Assumes `ee.Authenticate()` has already been run once, outside this
+    codebase, per the user's own GEE project setup.
+    """
+    import ee
+
+    try:
+        ee.Number(1).getInfo()
+    except Exception:
+        ee.Initialize()
+
+
+def build_soil_data(
+    longitude: float,
+    latitude: float,
+    rooting_depth_cm: float,
+    soil_cfg: Optional[DictConfig] = None,
+) -> dict:
+    """Fetch a per-location SoilGrids profile via Earth Engine
+    (`gee_soil_extractor.soil`) and collapse it into the single root-zone
+    bucket `Wofost81_WLP_CWB`'s classic waterbalance needs. Requires the
+    `earthengine-api` package and an authenticated GEE project.
+
+    `soil_cfg` defaults to `configs/data_pipeline/soil/gee_soil.yaml` (all 7
+    SoilGrids variables, the full 6-depth grid).
+    """
+    import ee
+
+    from src.data_pipeline.soil.gee_soil_extractor import soil as gee_soil
+
+    ensure_ee_initialized()
+    cfg = soil_cfg if soil_cfg is not None else OmegaConf.load(_DEFAULT_GEE_SOIL_CONFIG)
+    point = ee.Geometry.Point([longitude, latitude])
+
+    soil_result = gee_soil(cfg, point)
+    df_soilgrids = gee_soil_result_to_dataframe(soil_result, latitude, longitude)
+    return collapse_to_root_zone_bucket(df_soilgrids, rooting_depth_cm=rooting_depth_cm)
 
 
 def load_crop_data_provider(model_class, crop_name: str, variety_name: str) -> YAMLCropDataProvider:
@@ -108,19 +156,14 @@ def merge_weather_and_derive_features(
 
 
 def derive_static_soil_features(soil_data: dict) -> dict:
-    """Static soil features for the v1 CYBench-aligned feature set, from the
-    same generic soil bucket every location/run uses (see
-    `default_wofost_variables.default_soil_parameters`):
+    """Static soil features for the v1 CYBench-aligned feature set, computed
+    per location from the real derived soil bucket (`build_soil_data`):
 
-    - `awc` (available water capacity) = `SMFCF - SMW` -- falls out for free
-    - `bulk_density` = a fixed literature-typical placeholder (not measured)
-
-    Both are constant across all locations in this version. That's
-    intentional: the schema stays CYBench-shaped so a later swap to real
-    per-location soil values doesn't require touching the downstream
-    pipeline or the TNP's input schema.
+    - `awc` (available water capacity) = `SMFCF - SMW`
+    - `bulk_density` = the rooting-depth-weighted `bdod` average
+      (`collapse_to_root_zone_bucket`'s `BULK_DENSITY`)
     """
     return {
         "awc": soil_data["SMFCF"] - soil_data["SMW"],
-        "bulk_density": default_bulk_density(),
+        "bulk_density": soil_data["BULK_DENSITY"],
     }
