@@ -6,20 +6,11 @@ from pcse.base import ParameterProvider
 from pcse.input import DummySoilDataProvider, WOFOST81SiteDataProvider_Classic, YAMLCropDataProvider
 from pcse.util import Afgen
 
-from src.data_pipeline.soil.utils_soil.classic_waterbalance_soil import collapse_to_root_zone_bucket
-from src.data_pipeline.soil.utils_soil.soilgrids import get_df_soilgrids
 from src.data_pipeline.weather.utils_weather.openmeteo_weather import weather_provider_to_dataframe
-from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import default_site_parameters
-
-
-def build_soil_data(longitude: float, latitude: float, rooting_depth_cm: float) -> dict:
-    """Fetch a raw SoilGrids profile for a location and collapse it into the
-    single root-zone bucket `Wofost81_WLP_CWB` needs (v1 simplification spec:
-    classic waterbalance, not the multi-layer profile). Requires network
-    access to the SoilGrids REST API.
-    """
-    df_soilgrids = get_df_soilgrids(lat=latitude, lon=longitude)
-    return collapse_to_root_zone_bucket(df_soilgrids, rooting_depth_cm=rooting_depth_cm)
+from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import (
+    default_bulk_density,
+    default_site_parameters,
+)
 
 
 def load_crop_data_provider(model_class, crop_name: str, variety_name: str) -> YAMLCropDataProvider:
@@ -117,9 +108,19 @@ def merge_weather_and_derive_features(
 
 
 def derive_static_soil_features(soil_data: dict) -> dict:
-    """Static soil features for the v1 CYBench-aligned feature set: `awc`
-    (available water capacity) as `SMFCF - SMW`. `bulk_density` is skipped in
-    this version (would need a WISE, or fallback SoilGrids, pull -- out of
-    scope for now).
+    """Static soil features for the v1 CYBench-aligned feature set, from the
+    same generic soil bucket every location/run uses (see
+    `default_wofost_variables.default_soil_parameters`):
+
+    - `awc` (available water capacity) = `SMFCF - SMW` -- falls out for free
+    - `bulk_density` = a fixed literature-typical placeholder (not measured)
+
+    Both are constant across all locations in this version. That's
+    intentional: the schema stays CYBench-shaped so a later swap to real
+    per-location soil values doesn't require touching the downstream
+    pipeline or the TNP's input schema.
     """
-    return {"awc": soil_data["SMFCF"] - soil_data["SMW"]}
+    return {
+        "awc": soil_data["SMFCF"] - soil_data["SMW"],
+        "bulk_density": default_bulk_density(),
+    }

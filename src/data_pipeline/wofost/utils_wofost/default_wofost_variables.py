@@ -38,18 +38,46 @@ def default_max_duration_days():
     }
 
 
-def default_root_zone_depth_cm():
-    """Rooting depth (cm) used to collapse the SoilGrids profile into the
-    single root-zone bucket `Wofost81_WLP_CWB`'s classic waterbalance needs
-    (see `collapse_to_root_zone_bucket`), and to set `RDMSOL` for that bucket.
+def default_soil_parameters():
+    """v1 soil-step correction: use one generic soil profile for every
+    location instead of deriving a per-location root-zone bucket.
 
-    TEMP VALUES: rough crop-typical rooting depths, not location-aware.
-    TODO: revisit alongside real crop/cultivar and soil-depth calibration.
+    The SoilGrids pull this pipeline already has (clay/nitrogen/phh2o/soc at
+    0-5/5-15/15-30cm) is not sufficient input for a water-retention
+    pedotransfer function on its own -- no sand/silt fraction (so texture
+    isn't actually determined by clay alone) and no bulk density -- and the
+    SoilGrids API is currently unreachable anyway. Rather than fetch more
+    data or do an unreliable estimate, every location/run uses this same
+    fixed bucket for `Wofost81_WLP_CWB`'s classic waterbalance.
+
+    Values are the standard PCSE-tutorial "generic medium soil" numbers (the
+    same ones PCSE's own `DummySoilDataProvider` uses for potential-production
+    runs where soil doesn't matter) -- not measured, not location-specific.
+
+    TODO: per-location soil hydraulics deferred until sand/silt fraction and
+    bulk density are added to the SoilGrids pull (or the API is reachable
+    again) -- see `pcse_runner.derive_static_soil_features` for how the
+    static `awc`/`bulk_density` features are populated in the meantime.
     """
     return {
-        "wheat": 100.0,
-        "maize": 100.0,
+        "SMFCF": 0.30,
+        "SM0": 0.40,
+        "SMW": 0.10,
+        "CRAIRC": 0.06,
+        "SOPE": 10.0,
+        "KSUB": 10.0,
+        "RDMSOL": 120.0,
     }
+
+
+def default_bulk_density():
+    """Fixed literature-typical bulk density for a medium-textured/loam
+    soil (g/cm^3), used as a placeholder for CYBench's `soil` feature group
+    until real per-location bulk density is available.
+
+    TEMP VALUE -- not measured, same for every location/run.
+    """
+    return 1.35
 
 
 def default_site_parameters():

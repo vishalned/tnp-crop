@@ -13,13 +13,12 @@ from src.data_pipeline.wofost.utils_wofost.agromanagement import build_agromanag
 from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import (
     default_crop_variety,
     default_max_duration_days,
-    default_root_zone_depth_cm,
+    default_soil_parameters,
     default_sowing_doy,
     wofost_model_name,
 )
 from src.data_pipeline.wofost.utils_wofost.pcse_runner import (
     build_parameter_provider,
-    build_soil_data,
     derive_static_soil_features,
     merge_weather_and_derive_features,
     run_wofost,
@@ -38,7 +37,6 @@ def generate_wofost_episode(
     variety_name: Optional[str] = None,
     sowing_doy: Optional[int] = None,
     sowing_jitter_days: int = 10,
-    rooting_depth_cm: Optional[float] = None,
     openmeteo_model: Optional[str] = None,
     seed: Optional[int] = None,
     output_dir: Optional[str] = None,
@@ -50,27 +48,26 @@ def generate_wofost_episode(
     v1 simplification spec: CYBench yield task only, `Wofost81_WLP_CWB`
     (water-limited, classic single-bucket waterbalance, no nitrogen).
 
+    Soil-step correction: every location/run uses the same fixed, generic
+    soil bucket (see `default_wofost_variables.default_soil_parameters`)
+    instead of a per-location derivation -- see that function's docstring
+    for why.
+
     :param sowing_doy: day-of-year sowing anchor. Defaults to a rough,
         location-agnostic placeholder per crop (see
         `default_wofost_variables.default_sowing_doy`) -- TODO: replace with
         the real per-location WorldCereal start-of-season (SOS) once that
         extraction pipeline exists.
-    :param rooting_depth_cm: depth used to collapse the SoilGrids profile
-        into a single root-zone bucket. Defaults to a per-crop placeholder
-        (see `default_wofost_variables.default_root_zone_depth_cm`).
     """
     variety_name = variety_name if variety_name is not None else default_crop_variety()[crop]
     anchor_doy = sowing_doy if sowing_doy is not None else default_sowing_doy()[crop]
     max_duration = default_max_duration_days()[crop]
-    rooting_depth_cm = rooting_depth_cm if rooting_depth_cm is not None else default_root_zone_depth_cm()[crop]
 
     rng = random.Random(seed)
     sowing_date = jitter_sowing_date(year, anchor_doy, sowing_jitter_days, rng=rng)
 
     model_class = getattr(pcse_models, wofost_model_name())
-
-    print(f"building root-zone soil bucket for longitude: {longitude}, latitude: {latitude}")
-    soil_data = build_soil_data(longitude, latitude, rooting_depth_cm)
+    soil_data = default_soil_parameters()
 
     print(f"getting weather to run WOFOST for longitude: {longitude}, latitude: {latitude}, from {sowing_date}")
     weather_data_provider = request_openmeteo_weather(
@@ -116,14 +113,14 @@ def generate_wofost_episode(
         "variety_name": variety_name,
         "year": year,
         "sowing_date": sowing_date.isoformat(),
-        "rooting_depth_cm": rooting_depth_cm,
         # yield: total weight storage organs (kg/ha) at maturity
         "yield_kg_per_ha": summary.get("TWSO"),
         "final_dvs": summary.get("DVS"),
-        # awc: available water capacity (SMFCF - SMW). bulk_density is
-        # intentionally omitted in this version (see
-        # pcse_runner.derive_static_soil_features).
+        # awc/bulk_density: from the generic soil bucket, same for every
+        # location/run in this version (see
+        # default_wofost_variables.default_soil_parameters).
         "awc": static_features["awc"],
+        "bulk_density": static_features["bulk_density"],
     }
     with open(summary_path, "w") as f:
         json.dump(summary_record, f, indent=2)
@@ -140,8 +137,8 @@ def main():
         print(
             "Usage: python run_wofost_simulation.py --lon <longitude> --lat <latitude> "
             "--crop <wheat|maize> --year <year> [--sowing-doy <doy>] "
-            "[--sowing-jitter-days <days>] [--rooting-depth-cm <cm>] "
-            "[--openmeteo-model era5_land] [--seed <int>] [--output-dir <path>]"
+            "[--sowing-jitter-days <days>] [--openmeteo-model era5_land] "
+            "[--seed <int>] [--output-dir <path>]"
         )
         print("Example: python run_wofost_simulation.py -lon 6.656 -lat 52.966 --crop wheat --year 2020")
         sys.exit(1)
@@ -154,7 +151,6 @@ def main():
     parser.add_argument("--variety-name", dest="variety_name", type=str, default=None)
     parser.add_argument("--sowing-doy", dest="sowing_doy", type=int, default=None)
     parser.add_argument("--sowing-jitter-days", dest="sowing_jitter_days", type=int, default=10)
-    parser.add_argument("--rooting-depth-cm", dest="rooting_depth_cm", type=float, default=None)
     parser.add_argument("--openmeteo-model", dest="openmeteo_model", type=str, default=None)
     parser.add_argument("--seed", dest="seed", type=int, default=None)
     parser.add_argument("-o", "--output-dir", dest="output_dir", type=str, default=DEFAULT_WOFOST_SAVE_DIR)
@@ -169,7 +165,6 @@ def main():
         variety_name=args.variety_name,
         sowing_doy=args.sowing_doy,
         sowing_jitter_days=args.sowing_jitter_days,
-        rooting_depth_cm=args.rooting_depth_cm,
         openmeteo_model=args.openmeteo_model,
         seed=args.seed,
         output_dir=args.output_dir,

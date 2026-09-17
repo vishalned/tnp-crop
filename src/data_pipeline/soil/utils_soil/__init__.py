@@ -19,10 +19,6 @@ from src.data_pipeline.soil.utils_soil.generate_soil_files import (
     dump_soil_yaml,
     PedotransferFunctionsWosten,
 )
-from src.data_pipeline.soil.utils_soil.classic_waterbalance_soil import (
-    collapse_to_root_zone_bucket,
-)
-
 __all__ = [
     "default_soilgrid_variables",
     "default_zs",
@@ -39,5 +35,4 @@ __all__ = [
     "generate_soil_yaml",
     "dump_soil_yaml",
     "PedotransferFunctionsWosten",
-    "collapse_to_root_zone_bucket",
 ]
