@@ -5,6 +5,7 @@ from src.data_pipeline.weather.utils_weather.default_weather_variables import (
 from src.data_pipeline.weather.utils_weather.openmeteo_weather import (
     request_openmeteo_weather,
     get_df_weather,
+    weather_provider_to_dataframe,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "default_openmeteo_model",
     "request_openmeteo_weather",
     "get_df_weather",
+    "weather_provider_to_dataframe",
 ]

@@ -38,12 +38,26 @@ def default_max_duration_days():
     }
 
 
+def default_root_zone_depth_cm():
+    """Rooting depth (cm) used to collapse the SoilGrids profile into the
+    single root-zone bucket `Wofost81_WLP_CWB`'s classic waterbalance needs
+    (see `collapse_to_root_zone_bucket`), and to set `RDMSOL` for that bucket.
+
+    TEMP VALUES: rough crop-typical rooting depths, not location-aware.
+    TODO: revisit alongside real crop/cultivar and soil-depth calibration.
+    """
+    return {
+        "wheat": 100.0,
+        "maize": 100.0,
+    }
+
+
 def default_site_parameters():
     """Site parameters required by WOFOST81SiteDataProvider_Classic that
     generic soil/weather inputs don't otherwise cover.
 
     TEMP VALUES: WAV (initial soil moisture) and NAVAILI are generic
-    placeholders (NAVAILI is unused by the no-N WLP_MLWB config, but the site
+    placeholders (NAVAILI is unused by the no-N WLP_CWB config, but the site
     data provider still requires a value); CO2 is a fixed present-day default
     rather than a per-year historical value.
     TODO: revisit WAV per soil type if runs turn out sensitive to initial
@@ -52,14 +66,20 @@ def default_site_parameters():
     return {"WAV": 50.0, "CO2": 360.0, "NAVAILI": 80.0}
 
 
-def yield_track_model_name():
-    """Water-limited, multi-layer waterbalance, no nutrient balance -- verified
-    against `dir(pcse.models)` (decision #13)."""
-    return "Wofost81_WLP_MLWB"
+def wofost_model_name():
+    """Water-limited production, classic (single-bucket) waterbalance, no
+    nitrogen/SNOMIN, no multi-layer soil -- verified against
+    `dir(pcse.models)` (v1 simplification spec). This is the model used to
+    generate real training episodes for the CYBench yield task.
+    """
+    return "Wofost81_WLP_CWB"
 
 
-def phenology_track_model_name():
-    """Potential production only: DVS progression depends on temperature (and
-    daylength/vernalization), not water/nitrogen, so the simpler PP config is
-    sufficient for the phenology track (plan step 9)."""
+def plumbing_check_model_name():
+    """Potential production: no soil/water balance at all, so it's the
+    quickest way to validate weather -> crop params -> agromanagement ->
+    PCSE run -> output extraction end to end (spec step 1). Its output is
+    NOT used as real pretraining data -- soil-driven yield variation is the
+    whole point of the yield task, and PP has none.
+    """
     return "Wofost81_PP"

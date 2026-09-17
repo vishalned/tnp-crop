@@ -1,22 +1,25 @@
+import math
 from typing import Optional
 
 import pandas as pd
-import yaml
 from pcse.base import ParameterProvider
 from pcse.input import DummySoilDataProvider, WOFOST81SiteDataProvider_Classic, YAMLCropDataProvider
+from pcse.util import Afgen
 
+from src.data_pipeline.soil.utils_soil.classic_waterbalance_soil import collapse_to_root_zone_bucket
+from src.data_pipeline.soil.utils_soil.soilgrids import get_df_soilgrids
+from src.data_pipeline.weather.utils_weather.openmeteo_weather import weather_provider_to_dataframe
 from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import default_site_parameters
 
 
-def load_soil_data(soil_yaml_path: str) -> dict:
-    """Load a PCSE-format soil YAML (e.g. produced by
-    `src.data_pipeline.soil.generate_soilgrids_soil_file`) as a plain dict.
-    PCSE's `SoilProfile` reads `SoilProfileDescription` straight out of the
-    merged `ParameterProvider`, so no dedicated soil-file reader class is
-    needed here -- just the parsed YAML.
+def build_soil_data(longitude: float, latitude: float, rooting_depth_cm: float) -> dict:
+    """Fetch a raw SoilGrids profile for a location and collapse it into the
+    single root-zone bucket `Wofost81_WLP_CWB` needs (v1 simplification spec:
+    classic waterbalance, not the multi-layer profile). Requires network
+    access to the SoilGrids REST API.
     """
-    with open(soil_yaml_path) as f:
-        return yaml.safe_load(f)
+    df_soilgrids = get_df_soilgrids(lat=latitude, lon=longitude)
+    return collapse_to_root_zone_bucket(df_soilgrids, rooting_depth_cm=rooting_depth_cm)
 
 
 def load_crop_data_provider(model_class, crop_name: str, variety_name: str) -> YAMLCropDataProvider:
@@ -33,65 +36,26 @@ def build_parameter_provider(
     model_class,
     crop_name: str,
     variety_name: str,
-    soil_yaml_path: Optional[str],
+    soil_data: Optional[dict],
     site_parameters: Optional[dict] = None,
 ) -> ParameterProvider:
     """Assemble crop + soil + site parameters into one `ParameterProvider`.
 
-    `soil_yaml_path=None` uses PCSE's `DummySoilDataProvider`, appropriate for
-    potential-production (phenology-track) runs that don't touch the water
-    balance at all (plan step 9).
+    `soil_data=None` uses PCSE's `DummySoilDataProvider`, appropriate only for
+    the potential-production plumbing check (spec step 1) that doesn't touch
+    the water balance at all -- never for a real yield-track episode.
     """
     crop_data = load_crop_data_provider(model_class, crop_name, variety_name)
-    soil_data = load_soil_data(soil_yaml_path) if soil_yaml_path is not None else DummySoilDataProvider()
+    soil_data = soil_data if soil_data is not None else DummySoilDataProvider()
     site_params = site_parameters if site_parameters is not None else default_site_parameters()
     site_data = WOFOST81SiteDataProvider_Classic(**site_params)
 
-    params = ParameterProvider(sitedata=site_data, soildata=soil_data, cropdata=crop_data)
-    _override_rooting_depth_if_needed(params, soil_data)
-    return params
-
-
-def _override_rooting_depth_if_needed(params: ParameterProvider, soil_data) -> None:
-    """Work around a real integration gap between the SoilGrids-based soil
-    generator and WOFOST's multilayer waterbalance: `SoilProfile` requires the
-    crop's max rootable depth (`RDMCR`, used as-is -- *not* clamped against
-    `RDMSOL` -- see `MultiLayerWaterBalance._setup_new_crop`) to exactly
-    coincide with a `SoilLayers` cumulative-thickness boundary (see
-    `pcse.soil.soil_profile.SoilProfile.validate_max_rooting_depth`), but
-    `default_zs()` (0/5/15/30/60/100/200 cm) generally won't include the
-    crop's default RDMCR (e.g. 125 cm for Winter_wheat_101).
-
-    TEMP FIX: clamp RDMCR down to the deepest available soil layer boundary
-    at or below its default value, via PCSE's parameter-override mechanism,
-    rather than failing the run. TODO: align the soil generator's depth bins
-    with common crop rooting depths (or vice versa) instead of overriding.
-    """
-    if not isinstance(soil_data, dict) or "SoilProfileDescription" not in soil_data:
-        return  # DummySoilDataProvider (potential production) has no layers to align to
-
-    layers = soil_data["SoilProfileDescription"]["SoilLayers"]
-    boundaries = []
-    cumulative_depth = 0.0
-    for layer in layers:
-        cumulative_depth += layer["Thickness"]
-        boundaries.append(cumulative_depth)
-
-    max_rootable_depth = params["RDMCR"]
-    aligned_boundaries = [b for b in boundaries if b <= max_rootable_depth]
-    if not aligned_boundaries:
-        target_depth = boundaries[-1]
-    elif max_rootable_depth in aligned_boundaries:
-        return  # already aligned, nothing to override
-    else:
-        target_depth = aligned_boundaries[-1]
-
-    params.set_override("RDMCR", target_depth)
+    return ParameterProvider(sitedata=site_data, soildata=soil_data, cropdata=crop_data)
 
 
 def run_wofost(model_class, params: ParameterProvider, weather_data_provider, agromanagement: list):
-    """Run a PCSE/WOFOST engine to completion and return the daily driver +
-    output trajectory as a DataFrame, plus the terminal summary dict.
+    """Run a PCSE/WOFOST engine to completion and return the daily state/rate
+    output as a DataFrame, plus the terminal summary dict.
     """
     engine = model_class(params, weather_data_provider, agromanagement)
     engine.run_till_terminate()
@@ -105,9 +69,11 @@ def run_wofost(model_class, params: ParameterProvider, weather_data_provider, ag
 
 
 def _flatten_per_layer_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """The multilayer waterbalance reports some outputs (e.g. `SM`, `WC`) as
-    one array per day, one value per soil layer. Expand those into
-    `{column}_layer{i}` scalar columns so the CSV is plain tabular data.
+    """Defensive no-op for the classic (single-bucket) waterbalance, which
+    reports scalars: kept in case an output ever comes back as one array per
+    day (as the multi-layer waterbalance's `SM`/`WC` do), so it gets expanded
+    into `{column}_layer{i}` scalar columns instead of leaking a raw array
+    into the CSV.
     """
     for column in list(df.columns):
         if len(df) > 0 and hasattr(df[column].iloc[0], "__len__") and not isinstance(df[column].iloc[0], str):
@@ -116,3 +82,44 @@ def _flatten_per_layer_columns(df: pd.DataFrame) -> pd.DataFrame:
                 df[f"{column}_layer{i}"] = df[column].apply(lambda arr: arr[i])
             df = df.drop(columns=[column])
     return df
+
+
+def merge_weather_and_derive_features(
+    daily_output: pd.DataFrame,
+    weather_data_provider,
+    latitude: float,
+    longitude: float,
+    params: ParameterProvider,
+) -> pd.DataFrame:
+    """Join the WOFOST daily output with the daily weather drivers it
+    consumed and add the v1 CYBench-aligned derived features (spec's "per-run
+    output to store"):
+
+    - `cwb` = `RAIN - ET0` (climatic water balance)
+    - `fpar` = `1 - exp(-k(DVS) * LAI)`, with `k` read from the crop's own
+      `KDIFTB` (extinction coefficient for diffuse light) table
+    - `ssm` = WOFOST's simulated `SM` (soil moisture) state -- a straight
+      rename, since the classic waterbalance already reports one root-zone
+      value rather than CYBench's satellite-derived surface value
+    """
+    weather_df = weather_provider_to_dataframe(weather_data_provider, latitude, longitude)
+    weather_cols = ["day", "TMIN", "TMAX", "TEMP", "RAIN", "IRRAD", "ET0"]
+    merged = daily_output.merge(weather_df[weather_cols], on="day", how="left")
+
+    merged["cwb"] = merged["RAIN"] - merged["ET0"]
+
+    k_diftb = Afgen(params["KDIFTB"])
+    merged["fpar"] = merged.apply(lambda row: 1.0 - math.exp(-k_diftb(row["DVS"]) * row["LAI"]), axis=1)
+
+    merged["ssm"] = merged["SM"]
+
+    return merged
+
+
+def derive_static_soil_features(soil_data: dict) -> dict:
+    """Static soil features for the v1 CYBench-aligned feature set: `awc`
+    (available water capacity) as `SMFCF - SMW`. `bulk_density` is skipped in
+    this version (would need a WISE, or fallback SoilGrids, pull -- out of
+    scope for now).
+    """
+    return {"awc": soil_data["SMFCF"] - soil_data["SMW"]}
