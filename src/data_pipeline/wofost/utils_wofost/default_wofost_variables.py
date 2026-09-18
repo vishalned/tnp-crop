@@ -38,27 +38,12 @@ def default_max_duration_days():
     }
 
 
-def default_root_zone_depth_cm():
-    """Rooting depth (cm) used to collapse the per-location SoilGrids profile
-    (via `collapse_to_root_zone_bucket`) into the single root-zone bucket
-    `Wofost81_WLP_CWB`'s classic waterbalance needs, and to set `RDMSOL` for
-    that bucket.
-
-    TEMP VALUES: rough crop-typical rooting depths, not location-aware.
-    TODO: revisit alongside real crop/cultivar and soil-depth calibration.
-    """
-    return {
-        "wheat": 100.0,
-        "maize": 100.0,
-    }
-
-
 def default_site_parameters():
     """Site parameters required by WOFOST81SiteDataProvider_Classic that
     generic soil/weather inputs don't otherwise cover.
 
     TEMP VALUES: WAV (initial soil moisture) and NAVAILI are generic
-    placeholders (NAVAILI is unused by the no-N WLP_CWB config, but the site
+    placeholders (NAVAILI is unused by the no-N MLWB config, but the site
     data provider still requires a value); CO2 is a fixed present-day default
     rather than a per-year historical value.
     TODO: revisit WAV per soil type if runs turn out sensitive to initial
@@ -68,12 +53,14 @@ def default_site_parameters():
 
 
 def wofost_model_name():
-    """Water-limited production, classic (single-bucket) waterbalance, no
-    nitrogen/SNOMIN, no multi-layer soil -- verified against
-    `dir(pcse.models)` (v1 simplification spec). This is the model used to
-    generate real training episodes for the CYBench yield task.
+    """Water-limited production, multi-layer waterbalance, no nitrogen/SNOMIN
+    -- verified against `dir(pcse.models)`. Now that the full 6-depth GEE
+    SoilGrids pull provides real depth-resolved van Genuchten curves, there's
+    no reason to collapse them into a single CWB bucket; MLWB consumes each
+    layer directly. This is the model used to generate real training
+    episodes for the CYBench yield task.
     """
-    return "Wofost81_WLP_CWB"
+    return "Wofost81_WLP_MLWB"
 
 
 def plumbing_check_model_name():

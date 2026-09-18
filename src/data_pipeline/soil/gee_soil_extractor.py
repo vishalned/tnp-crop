@@ -3,6 +3,8 @@ import pandas as pd
 import logging
 from omegaconf import DictConfig
 
+from src.data_pipeline.soil.utils_soil.default_soil_variables import default_soilgrid_d_factors
+
 log = logging.getLogger(__name__)
 
 
@@ -42,6 +44,13 @@ def soil(
         'silt': 'projects/soilgrids-isric/silt_mean',
     }
 
+    # SoilGrids band values are raw mapped integers (e.g. clay in g/kg * 10);
+    # scale them to conventional units right here, upstream of everything
+    # else (calculate_van_genuchten expects conventional units and is left
+    # untouched -- see default_soilgrid_d_factors for the fixed, ISRIC-
+    # documented conversion factors this applies).
+    d_factors = default_soilgrid_d_factors()
+
     soil_data = {}
 
     for var in variables:
@@ -61,7 +70,10 @@ def soil(
         sample_data = pixel_value.getInfo()
 
         if sample_data['features']:
-            soil_data[var] = [sample_data['features'][0]['properties'][band_name] for band_name in band_names]
+            factor = d_factors.get(var, 1)
+            soil_data[var] = [
+                sample_data['features'][0]['properties'][band_name] / factor for band_name in band_names
+            ]
 
     df = pd.DataFrame(soil_data)
     soil_data_dict = {

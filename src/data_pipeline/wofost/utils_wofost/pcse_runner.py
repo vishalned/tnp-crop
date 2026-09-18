@@ -1,64 +1,34 @@
 import math
-import os
-from typing import Optional
+from typing import Optional, Tuple
 
 import pandas as pd
-import rootutils
-from omegaconf import DictConfig, OmegaConf
+import yaml
 from pcse.base import ParameterProvider
 from pcse.input import DummySoilDataProvider, WOFOST81SiteDataProvider_Classic, YAMLCropDataProvider
 from pcse.util import Afgen
 
-from src.data_pipeline.soil.utils_soil.classic_waterbalance_soil import (
-    collapse_to_root_zone_bucket,
-    gee_soil_result_to_dataframe,
-)
+from src.data_pipeline.soil.generate_gee_soil_file import generate_soil_file_from_gee
 from src.data_pipeline.weather.utils_weather.openmeteo_weather import weather_provider_to_dataframe
 from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import default_site_parameters
 
 
-_root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-_DEFAULT_GEE_SOIL_CONFIG = os.path.join(str(_root), "configs", "data_pipeline", "soil", "gee_soil.yaml")
+def build_soil_data(longitude: float, latitude: float) -> Tuple[dict, dict]:
+    """Fetch a per-location, depth-resolved SoilGrids profile via Earth
+    Engine and assemble it into the PCSE multi-layer soil YAML
+    `Wofost81_WLP_MLWB` needs (`generate_gee_soil_file.generate_soil_file_from_gee`
+    -- van Genuchten curves tabulated per depth, no collapsing to a single
+    bucket). Requires the `earthengine-api` package and an authenticated GEE
+    project.
 
-
-def ensure_ee_initialized() -> None:
-    """Initialize the Earth Engine client if it isn't already (idempotent).
-    Assumes `ee.Authenticate()` has already been run once, outside this
-    codebase, per the user's own GEE project setup.
+    Returns `(soil_data, static_features)`: the parsed `SoilProfileDescription`
+    dict ready for `ParameterProvider`, and the topsoil-derived `awc`/
+    `bulk_density` CYBench-aligned static features (the multi-layer profile
+    doesn't otherwise expose single scalars for the whole soil column).
     """
-    import ee
-
-    try:
-        ee.Number(1).getInfo()
-    except Exception:
-        ee.Initialize()
-
-
-def build_soil_data(
-    longitude: float,
-    latitude: float,
-    rooting_depth_cm: float,
-    soil_cfg: Optional[DictConfig] = None,
-) -> dict:
-    """Fetch a per-location SoilGrids profile via Earth Engine
-    (`gee_soil_extractor.soil`) and collapse it into the single root-zone
-    bucket `Wofost81_WLP_CWB`'s classic waterbalance needs. Requires the
-    `earthengine-api` package and an authenticated GEE project.
-
-    `soil_cfg` defaults to `configs/data_pipeline/soil/gee_soil.yaml` (all 7
-    SoilGrids variables, the full 6-depth grid).
-    """
-    import ee
-
-    from src.data_pipeline.soil.gee_soil_extractor import soil as gee_soil
-
-    ensure_ee_initialized()
-    cfg = soil_cfg if soil_cfg is not None else OmegaConf.load(_DEFAULT_GEE_SOIL_CONFIG)
-    point = ee.Geometry.Point([longitude, latitude])
-
-    soil_result = gee_soil(cfg, point)
-    df_soilgrids = gee_soil_result_to_dataframe(soil_result, latitude, longitude)
-    return collapse_to_root_zone_bucket(df_soilgrids, rooting_depth_cm=rooting_depth_cm)
+    result = generate_soil_file_from_gee(longitude=longitude, latitude=latitude)
+    with open(result["path"]) as f:
+        soil_data = yaml.safe_load(f)
+    return soil_data, result["static_features"]
 
 
 def load_crop_data_provider(model_class, crop_name: str, variety_name: str) -> YAMLCropDataProvider:
@@ -89,12 +59,51 @@ def build_parameter_provider(
     site_params = site_parameters if site_parameters is not None else default_site_parameters()
     site_data = WOFOST81SiteDataProvider_Classic(**site_params)
 
-    return ParameterProvider(sitedata=site_data, soildata=soil_data, cropdata=crop_data)
+    params = ParameterProvider(sitedata=site_data, soildata=soil_data, cropdata=crop_data)
+    _override_rooting_depth_if_needed(params, soil_data)
+    return params
+
+
+def _override_rooting_depth_if_needed(params: ParameterProvider, soil_data) -> None:
+    """Work around a real integration gap between the SoilGrids-based soil
+    generator and WOFOST's multilayer waterbalance: `SoilProfile` requires the
+    crop's max rootable depth (`RDMCR`, used as-is -- *not* clamped against
+    `RDMSOL` -- see `MultiLayerWaterBalance._setup_new_crop`) to exactly
+    coincide with a `SoilLayers` cumulative-thickness boundary (see
+    `pcse.soil.soil_profile.SoilProfile.validate_max_rooting_depth`), but
+    `default_zs()` (0/5/15/30/60/100/200 cm) generally won't include the
+    crop's default RDMCR (e.g. 125 cm for Winter_wheat_101).
+
+    TEMP FIX: clamp RDMCR down to the deepest available soil layer boundary
+    at or below its default value, via PCSE's parameter-override mechanism,
+    rather than failing the run. TODO: align the soil generator's depth bins
+    with common crop rooting depths (or vice versa) instead of overriding.
+    """
+    if not isinstance(soil_data, dict) or "SoilProfileDescription" not in soil_data:
+        return  # DummySoilDataProvider (potential production) has no layers to align to
+
+    layers = soil_data["SoilProfileDescription"]["SoilLayers"]
+    boundaries = []
+    cumulative_depth = 0.0
+    for layer in layers:
+        cumulative_depth += layer["Thickness"]
+        boundaries.append(cumulative_depth)
+
+    max_rootable_depth = params["RDMCR"]
+    aligned_boundaries = [b for b in boundaries if b <= max_rootable_depth]
+    if not aligned_boundaries:
+        target_depth = boundaries[-1]
+    elif max_rootable_depth in aligned_boundaries:
+        return  # already aligned, nothing to override
+    else:
+        target_depth = aligned_boundaries[-1]
+
+    params.set_override("RDMCR", target_depth)
 
 
 def run_wofost(model_class, params: ParameterProvider, weather_data_provider, agromanagement: list):
-    """Run a PCSE/WOFOST engine to completion and return the daily state/rate
-    output as a DataFrame, plus the terminal summary dict.
+    """Run a PCSE/WOFOST engine to completion and return the daily driver +
+    output trajectory as a DataFrame, plus the terminal summary dict.
     """
     engine = model_class(params, weather_data_provider, agromanagement)
     engine.run_till_terminate()
@@ -108,11 +117,10 @@ def run_wofost(model_class, params: ParameterProvider, weather_data_provider, ag
 
 
 def _flatten_per_layer_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Defensive no-op for the classic (single-bucket) waterbalance, which
-    reports scalars: kept in case an output ever comes back as one array per
-    day (as the multi-layer waterbalance's `SM`/`WC` do), so it gets expanded
-    into `{column}_layer{i}` scalar columns instead of leaking a raw array
-    into the CSV.
+    """The multilayer waterbalance reports some outputs (e.g. `SM`, `WC`) as
+    one array per day, one value per soil layer (shallowest first). Expand
+    those into `{column}_layer{i}` scalar columns so the CSV is plain
+    tabular data.
     """
     for column in list(df.columns):
         if len(df) > 0 and hasattr(df[column].iloc[0], "__len__") and not isinstance(df[column].iloc[0], str):
@@ -137,9 +145,9 @@ def merge_weather_and_derive_features(
     - `cwb` = `RAIN - ET0` (climatic water balance)
     - `fpar` = `1 - exp(-k(DVS) * LAI)`, with `k` read from the crop's own
       `KDIFTB` (extinction coefficient for diffuse light) table
-    - `ssm` = WOFOST's simulated `SM` (soil moisture) state -- a straight
-      rename, since the classic waterbalance already reports one root-zone
-      value rather than CYBench's satellite-derived surface value
+    - `ssm` = WOFOST's simulated topsoil `SM` (`SM_layer0`, the shallowest
+      multi-layer waterbalance layer) -- closest available match to
+      CYBench's satellite-derived surface soil moisture
     """
     weather_df = weather_provider_to_dataframe(weather_data_provider, latitude, longitude)
     weather_cols = ["day", "TMIN", "TMAX", "TEMP", "RAIN", "IRRAD", "ET0"]
@@ -150,20 +158,6 @@ def merge_weather_and_derive_features(
     k_diftb = Afgen(params["KDIFTB"])
     merged["fpar"] = merged.apply(lambda row: 1.0 - math.exp(-k_diftb(row["DVS"]) * row["LAI"]), axis=1)
 
-    merged["ssm"] = merged["SM"]
+    merged["ssm"] = merged["SM_layer0"]
 
     return merged
-
-
-def derive_static_soil_features(soil_data: dict) -> dict:
-    """Static soil features for the v1 CYBench-aligned feature set, computed
-    per location from the real derived soil bucket (`build_soil_data`):
-
-    - `awc` (available water capacity) = `SMFCF - SMW`
-    - `bulk_density` = the rooting-depth-weighted `bdod` average
-      (`collapse_to_root_zone_bucket`'s `BULK_DENSITY`)
-    """
-    return {
-        "awc": soil_data["SMFCF"] - soil_data["SMW"],
-        "bulk_density": soil_data["BULK_DENSITY"],
-    }

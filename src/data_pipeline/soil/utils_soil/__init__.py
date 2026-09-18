@@ -20,9 +20,12 @@ from src.data_pipeline.soil.utils_soil.generate_soil_files import (
     dump_soil_yaml,
     PedotransferFunctionsWosten,
 )
-from src.data_pipeline.soil.utils_soil.classic_waterbalance_soil import (
-    gee_soil_result_to_dataframe,
-    collapse_to_root_zone_bucket,
+from src.data_pipeline.soil.utils_soil.gee_soilgrids import (
+    ensure_ee_initialized,
+    get_df_soilgrids_gee,
+)
+from src.data_pipeline.soil.utils_soil.soil_static_features import (
+    compute_topsoil_static_features,
 )
 
 __all__ = [
@@ -42,6 +45,7 @@ __all__ = [
     "generate_soil_yaml",
     "dump_soil_yaml",
     "PedotransferFunctionsWosten",
-    "gee_soil_result_to_dataframe",
-    "collapse_to_root_zone_bucket",
+    "ensure_ee_initialized",
+    "get_df_soilgrids_gee",
+    "compute_topsoil_static_features",
 ]

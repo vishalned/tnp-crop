@@ -6,7 +6,7 @@ output extraction. This is purely a wiring sanity check -- its output is NOT
 real pretraining data, since potential production has no soil-driven yield
 variation, which is the entire point of the CYBench yield task. Once this
 passes, use `run_wofost_simulation.generate_wofost_episode` (the real,
-`Wofost81_WLP_CWB`-based generator) instead.
+`Wofost81_WLP_MLWB`-based generator) instead.
 """
 
 import argparse
