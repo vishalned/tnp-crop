@@ -1,9 +1,9 @@
 name: soil
 log_level: INFO
 
-# All 7 SoilGrids variables the gee_soil_extractor.soil_assets map supports.
+# All 7 SoilGrids variables the gee_soilgrids.SOIL_ASSETS map supports.
 # nitrogen/phh2o aren't used by the van Genuchten hydraulic derivation
-# (collapse_to_root_zone_bucket) but are kept available as potential extra
+# (calculate_van_genuchten) but are kept available as potential extra
 # static features.
 variables:
   - clay
@@ -15,9 +15,9 @@ variables:
   - silt
 
 # Full SoilGrids depth grid (matches default_zs() in
-# src/data_pipeline/soil/utils_soil/default_soil_variables.py). Going past
-# 30cm matters: wheat/maize root zones extend well beyond it, and the
-# rooting-depth-weighted bucket calculation needs the deeper layers.
+# src/data_pipeline/soil/utils_soil/default_soil_variables.py), one
+# SoilLayers entry per depth in the assembled multi-layer soil YAML. Going
+# past 30cm matters: wheat/maize root zones extend well beyond it.
 depth_layers:
   - 0-5cm
   - 5-15cm

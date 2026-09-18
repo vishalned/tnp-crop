@@ -22,6 +22,7 @@ from src.data_pipeline.soil.utils_soil.generate_soil_files import (
 )
 from src.data_pipeline.soil.utils_soil.gee_soilgrids import (
     ensure_ee_initialized,
+    soil,
     get_df_soilgrids_gee,
 )
 from src.data_pipeline.soil.utils_soil.soil_static_features import (
@@ -46,6 +47,7 @@ __all__ = [
     "dump_soil_yaml",
     "PedotransferFunctionsWosten",
     "ensure_ee_initialized",
+    "soil",
     "get_df_soilgrids_gee",
     "compute_topsoil_static_features",
 ]

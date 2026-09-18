@@ -13,12 +13,10 @@ requests
 pandas
 numpy
 pyyaml
-scikit-learn
-joblib
-matplotlib
 
-# --------- data pipeline & weather --------- #
+# --------- data pipeline & weather / wofost --------- #
 pcse
+earthengine-api
 
 # --------- loggers --------- #
 # wandb
