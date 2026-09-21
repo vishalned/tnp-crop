@@ -1,8 +1,14 @@
 import logging
+from typing import Optional
 
 import pandas as pd
+from omegaconf import DictConfig, OmegaConf
 
-from src.data_pipeline.soil.utils_soil.default_soil_variables import default_soilgrid_d_factors, default_zs
+from src.data_pipeline.soil.utils_soil.default_soil_variables import (
+    default_gee_soil_config,
+    default_soilgrid_d_factors,
+    default_zs,
+)
 
 log = logging.getLogger(__name__)
 
@@ -31,13 +37,14 @@ def ensure_ee_initialized() -> None:
         ee.Initialize(project='cropfm')
 
 
-def soil(cfg, point, **kwargs) -> dict:
+def soil(cfg: Optional[DictConfig], point, **kwargs) -> dict:
     """Extract SoilGrids soil properties for a point via Earth Engine.
     SoilGrids - 250m resolution.
 
     Args:
-        cfg: Hydra config containing soil parameters (`log_level`, `name`,
-            `variables`, `depth_layers` -- see configs/data_pipeline/soil/gee_soil.yaml).
+        cfg: config containing soil parameters (`log_level`, `name`,
+            `variables`, `depth_layers`). Defaults to
+            `default_soil_variables.default_gee_soil_config()` when omitted.
         point: Geographic point to extract data from (`ee.Geometry.Point`).
         **kwargs: Additional parameters (unused, kept for a uniform modality-
             extractor call signature).
@@ -51,6 +58,7 @@ def soil(cfg, point, **kwargs) -> dict:
         `calculate_van_genuchten` always receives conventional units and is
         never itself touched).
     """
+    cfg = cfg if cfg is not None else OmegaConf.create(default_gee_soil_config())
     log.setLevel(cfg.log_level)
     variables = list(cfg.variables)
     depth_layers = list(cfg.depth_layers)
@@ -83,13 +91,13 @@ def soil(cfg, point, **kwargs) -> dict:
     return soil_data_dict
 
 
-def get_df_soilgrids_gee(cfg, longitude: float, latitude: float) -> pd.DataFrame:
+def get_df_soilgrids_gee(cfg: Optional[DictConfig], longitude: float, latitude: float) -> pd.DataFrame:
     """GEE-based counterpart to `soilgrids.get_df_soilgrids()`: returns the
     same depth-indexed DataFrame shape (`latitude`, `longitude`, `zmin`,
     `zmax` + SoilGrids variables in conventional units) that
     `calculate_van_genuchten` expects, sourced from Earth Engine instead of
-    the ISRIC REST API. Requires the `earthengine-api` package and an
-    authenticated GEE project.
+    the ISRIC REST API. `cfg=None` uses `default_gee_soil_config()`.
+    Requires the `earthengine-api` package and an authenticated GEE project.
     """
     ensure_ee_initialized()
     point = _import_ee().Geometry.Point([longitude, latitude])

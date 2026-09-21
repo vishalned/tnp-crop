@@ -4,7 +4,7 @@ import sys
 from typing import Optional
 
 import rootutils
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 from src.data_pipeline.soil.utils_soil.gee_soilgrids import get_df_soilgrids_gee
 from src.data_pipeline.soil.utils_soil.generate_soil_files import (
@@ -18,7 +18,6 @@ from src.data_pipeline.soil.utils_soil.soil_static_features import compute_topso
 
 root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 DEFAULT_SOIL_SAVE_DIR = os.path.join(str(root), "data", "raw", "soilgrids_gee")
-DEFAULT_GEE_SOIL_CONFIG = os.path.join(str(root), "configs", "data_pipeline", "soil", "gee_soil.yaml")
 
 
 def generate_soil_file_from_gee(
@@ -38,17 +37,19 @@ def generate_soil_file_from_gee(
     Returns a dict with the written YAML path and the topsoil-derived static
     features (`awc`, `bulk_density`) the multi-layer profile doesn't
     otherwise expose as single scalars for the whole soil column.
+
+    `soil_cfg` defaults to `default_soil_variables.default_gee_soil_config()`
+    when omitted (all 7 SoilGrids variables, the full 6-depth grid).
     """
     save_dir = output_dir if output_dir is not None else DEFAULT_SOIL_SAVE_DIR
     os.makedirs(save_dir, exist_ok=True)
 
-    cfg = soil_cfg if soil_cfg is not None else OmegaConf.load(DEFAULT_GEE_SOIL_CONFIG)
-    df_soilgrids = get_df_soilgrids_gee(cfg, longitude=longitude, latitude=latitude)
+    df_soilgrids = get_df_soilgrids_gee(soil_cfg, longitude=longitude, latitude=latitude)
 
     vg_data = calculate_van_genuchten(df_soilgrids)
     df_soil_input = generate_df_soil_input(vg_data)
     soil_yaml = generate_soil_yaml(df_soil_input)
-    static_features = compute_topsoil_static_features(vg_data)
+    static_features = compute_topsoil_static_features(df_soilgrids, vg_data)
 
     path_file = os.path.join(save_dir, f"soil_{longitude}_{latitude}.yaml")
     dump_soil_yaml(soil_yaml, path_file)

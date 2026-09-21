@@ -26,7 +26,30 @@ uv run python -m src.data_pipeline.soil.generate_soilgrids_soil_file -lon 6.656 
 uv run python -m src.data_pipeline.weather.generate_weather_file -lon 6.656 -lat 52.966 --start-date 2000-01-01 --end-date 2023-12-31
 uv run python -m src.data_pipeline.wofost.run_wofost_simulation -lon 6.656 -lat 52.966 --crop wheat --year 2020
 ```
-Soil for the WOFOST run is pulled per location via Google Earth Engine, so `earthengine authenticate` (or `ee.Authenticate()` in Python) needs to have been run once first.
+Soil for the WOFOST run is pulled per location via Google Earth Engine (see "Google Earth Engine setup" below), and crop parameters are read from a local clone of the WOFOST_crop_parameters repo (see "Crop parameters" below) — both are one-time setup steps needed before the WOFOST commands above will run.
+
+### Google Earth Engine setup
+
+The GEE-based soil pipeline (`src/data_pipeline/soil/utils_soil/gee_soilgrids.py`, used by `generate_gee_soil_file.py` and the WOFOST runner) needs an authenticated Earth Engine project.
+
+Authenticate **from inside Python, in the `uv` environment** — running `earthengine authenticate` directly from the shell did not work reliably:
+```bash
+uv run python
+```
+```python
+import ee
+ee.Authenticate()   # opens a browser flow once; credentials are then cached
+```
+
+`ensure_ee_initialized()` calls `ee.Initialize(project="cropfm")` — replace `"cropfm"` with your own Google Cloud project id (one with the Earth Engine API enabled) if you're not using that project.
+
+### Crop parameters
+
+Crop parameters are loaded from a **local clone** of the WOFOST_crop_parameters repo rather than fetched from GitHub at run time. We use the `herman-berghuijs` fork (not the upstream `ajwdewit` one) because it includes a fix for C4 crops (maize) that upstream doesn't have yet:
+```bash
+git clone -b wofost81 https://github.com/herman-berghuijs/WOFOST_crop_parameters.git data/crop_parameters/wofost81
+```
+`data/` is gitignored, so this clone needs to be repeated on every machine that runs the WOFOST pipeline. See `default_wofost_variables.default_crop_parameters_dir()`.
 
 ### Adding a package
 ```bash

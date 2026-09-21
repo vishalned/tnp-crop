@@ -54,3 +54,45 @@ def default_pf_wilting_point():
 
 def default_surface_conductivity():
     return 70
+
+
+# --------------------------------------------------------------------------
+# GEE-based SoilGrids extraction config
+# (src.data_pipeline.soil.utils_soil.gee_soilgrids.soil / get_df_soilgrids_gee)
+#
+# Replaces the standalone configs/data_pipeline/soil/gee_soil.yaml Hydra
+# file -- nothing else ever read it, so it's simpler kept as a plain default
+# here alongside the rest of this module, matching default_soilgrid_variables()
+# above for the REST-based path.
+# --------------------------------------------------------------------------
+
+def default_gee_soil_variables():
+    """All 7 SoilGrids variables the GEE `SOIL_ASSETS` map supports.
+    `nitrogen`/`phh2o` aren't used by the van Genuchten hydraulic derivation
+    (`calculate_van_genuchten`) but are kept available as potential extra
+    static features.
+    """
+    return ["clay", "nitrogen", "phh2o", "soc", "bdod", "sand", "silt"]
+
+
+def default_gee_depth_layers():
+    """SoilGrids depth-layer strings (e.g. "0-5cm") for the GEE band-name
+    convention (`f"{variable}_{depth}_mean"`), built from `default_zs()` so
+    there's one source of truth for the depth grid.
+    """
+    zmins, zmaxs = default_zs()
+    return [f"{zmin}-{zmax}cm" for zmin, zmax in zip(zmins, zmaxs)]
+
+
+def default_gee_soil_config(name: str = "soil", log_level: str = "INFO") -> dict:
+    """Default config for the GEE `soil()` extractor / `get_df_soilgrids_gee()`:
+    all 7 SoilGrids variables, the full 6-depth grid. Going past 30cm matters
+    -- wheat/maize root zones extend well beyond it, and the multi-layer
+    waterbalance needs one `SoilLayers` entry per depth.
+    """
+    return {
+        "name": name,
+        "log_level": log_level,
+        "variables": default_gee_soil_variables(),
+        "depth_layers": default_gee_depth_layers(),
+    }

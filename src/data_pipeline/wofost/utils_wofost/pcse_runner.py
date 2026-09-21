@@ -9,7 +9,10 @@ from pcse.util import Afgen
 
 from src.data_pipeline.soil.generate_gee_soil_file import generate_soil_file_from_gee
 from src.data_pipeline.weather.utils_weather.openmeteo_weather import weather_provider_to_dataframe
-from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import default_site_parameters
+from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import (
+    default_crop_parameters_dir,
+    default_site_parameters,
+)
 
 
 def build_soil_data(longitude: float, latitude: float) -> Tuple[dict, dict]:
@@ -32,12 +35,16 @@ def build_soil_data(longitude: float, latitude: float) -> Tuple[dict, dict]:
 
 
 def load_crop_data_provider(model_class, crop_name: str, variety_name: str) -> YAMLCropDataProvider:
-    """Fetch crop parameters from the WOFOST_crop_parameters GitHub repository
-    (decision #16), using the branch matching `model_class` (e.g. wofost81 for
-    Wofost81_* models). Requires network access.
+    """Load crop parameters from a local clone of the WOFOST_crop_parameters
+    repo (see `default_wofost_variables.default_crop_parameters_dir` for the
+    clone command and why this fork/branch specifically). No network access
+    needed at run time.
     """
-    crop_data = YAMLCropDataProvider(fpath='data/crop_parameters/wofost81')
-    # crop_data = YAMLCropDataProvider(model_class) # used when fetching parameters from the remote github link. This version doesnt include parameters for C4 crops -> maize. 
+    crop_data = YAMLCropDataProvider(fpath=default_crop_parameters_dir())
+    # Fetching directly from the upstream ajwdewit GitHub repo instead
+    # (network access, decision #16) is also possible:
+    #   crop_data = YAMLCropDataProvider(model_class)
+    # but that version doesn't include parameters for C4 crops (maize).
     crop_data.set_active_crop(crop_name, variety_name)
     return crop_data
 

@@ -1,3 +1,23 @@
+import os
+
+import rootutils
+
+_root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
+
+def default_crop_parameters_dir():
+    """Local clone of the WOFOST_crop_parameters repo, wofost81 branch, from
+    the herman-berghuijs fork rather than the upstream ajwdewit one -- this
+    fork includes a fix for C4 crops (maize) that upstream doesn't have yet.
+
+    Set up once via:
+        git clone -b wofost81 https://github.com/herman-berghuijs/WOFOST_crop_parameters.git data/crop_parameters/wofost81
+
+    See README.md's "Crop parameters" section.
+    """
+    return os.path.join(str(_root), "data", "crop_parameters", "wofost81")
+
+
 def default_crop_variety():
     """One default cultivar per crop for v1 (wofost_synthetic_pretraining_plan
     decision #16: "don't randomize cultivar yet"). Verified against the actual

@@ -7,6 +7,9 @@ from src.data_pipeline.soil.utils_soil.default_soil_variables import (
     default_pf_wilting_point,
     default_surface_conductivity,
     default_soilgrid_d_factors,
+    default_gee_soil_variables,
+    default_gee_depth_layers,
+    default_gee_soil_config,
 )
 from src.data_pipeline.soil.utils_soil.soilgrids import (
     request_soilgrids,
@@ -38,6 +41,9 @@ __all__ = [
     "default_pf_wilting_point",
     "default_surface_conductivity",
     "default_soilgrid_d_factors",
+    "default_gee_soil_variables",
+    "default_gee_depth_layers",
+    "default_gee_soil_config",
     "request_soilgrids",
     "get_depth_soilgrids",
     "get_df_soilgrids",
