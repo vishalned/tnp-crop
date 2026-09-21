@@ -28,7 +28,7 @@ def ensure_ee_initialized() -> None:
     try:
         ee.Number(1).getInfo()
     except Exception:
-        ee.Initialize()
+        ee.Initialize(project='cropfm')
 
 
 def soil(cfg, point, **kwargs) -> dict:

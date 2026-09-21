@@ -36,7 +36,8 @@ def load_crop_data_provider(model_class, crop_name: str, variety_name: str) -> Y
     (decision #16), using the branch matching `model_class` (e.g. wofost81 for
     Wofost81_* models). Requires network access.
     """
-    crop_data = YAMLCropDataProvider(model_class)
+    crop_data = YAMLCropDataProvider(fpath='data/crop_parameters/wofost81')
+    # crop_data = YAMLCropDataProvider(model_class) # used when fetching parameters from the remote github link. This version doesnt include parameters for C4 crops -> maize. 
     crop_data.set_active_crop(crop_name, variety_name)
     return crop_data
 
