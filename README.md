@@ -25,6 +25,7 @@ uv run python src/train.py experiment=tnp_synthetic
 uv run python -m src.data_pipeline.soil.generate_soilgrids_soil_file -lon 6.656 -lat 52.966
 uv run python -m src.data_pipeline.weather.generate_weather_file -lon 6.656 -lat 52.966 --start-date 2000-01-01 --end-date 2023-12-31
 uv run python -m src.data_pipeline.wofost.run_wofost_simulation -lon 6.656 -lat 52.966 --crop wheat --year 2020
+uv run python -m src.data_pipeline.wofost.generate_wofost_dataset --locations-csv path/to/locations.csv --crop wheat --num-years 5 --start-year 2000 --end-year 2023
 ```
 Soil for the WOFOST run is pulled per location via Google Earth Engine (see "Google Earth Engine setup" below), and crop parameters are read from a local clone of the WOFOST_crop_parameters repo (see "Crop parameters" below) — both are one-time setup steps needed before the WOFOST commands above will run.
 

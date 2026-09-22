@@ -6,6 +6,7 @@ from src.data_pipeline.weather.utils_weather.openmeteo_weather import (
     request_openmeteo_weather,
     get_df_weather,
     weather_provider_to_dataframe,
+    dump_weather_provider,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "request_openmeteo_weather",
     "get_df_weather",
     "weather_provider_to_dataframe",
+    "dump_weather_provider",
 ]
