@@ -25,7 +25,7 @@ from src.data_pipeline.wofost.utils_wofost.pcse_runner import (
 
 
 root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-DEFAULT_WOFOST_SAVE_DIR = os.path.join(str(root), "data", "processed", "wofost")
+DEFAULT_WOFOST_SAVE_DIR = os.path.join(str(root), "data", "raw", "wofost")
 
 
 def generate_wofost_episode(

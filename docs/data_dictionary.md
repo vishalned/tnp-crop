@@ -2,7 +2,7 @@
 
 Reference for the columns/fields produced by the data pipeline
 (`src/data_pipeline/`), in particular the WOFOST run outputs
-(`data/processed/wofost/{crop}/wofost_{crop}_{lon}_{lat}_{year}_{sowing_date}.csv`
+(`data/raw/wofost/{crop}/wofost_{crop}_{lon}_{lat}_{year}_{sowing_date}.csv`
 and the matching `..._summary.json`).
 
 Model: [`Wofost81_WLP_MLWB`](https://pcse.readthedocs.io) — water-limited
