@@ -8,6 +8,7 @@ from typing import Optional
 import pcse.models as pcse_models
 import rootutils
 
+from src.data_pipeline.soil.generate_gee_soil_file import generate_soil_data_for_wofost
 from src.data_pipeline.weather.utils_weather.openmeteo_weather import request_openmeteo_weather
 from src.data_pipeline.wofost.utils_wofost.agromanagement import build_agromanagement, jitter_sowing_date
 from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import (
@@ -18,7 +19,6 @@ from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import (
 )
 from src.data_pipeline.wofost.utils_wofost.pcse_runner import (
     build_parameter_provider,
-    build_soil_data,
     merge_weather_and_derive_features,
     run_wofost,
 )
@@ -47,8 +47,8 @@ def generate_wofost_episode(
     v1 simplification spec: CYBench yield task only, `Wofost81_WLP_MLWB`
     (water-limited, multi-layer waterbalance, no nitrogen). Soil is a real
     per-location, depth-resolved profile derived from a GEE SoilGrids pull
-    (`build_soil_data` -> `generate_gee_soil_file.generate_soil_file_from_gee`),
-    not a single collapsed bucket.
+    (`generate_gee_soil_file.generate_soil_data_for_wofost`), not a single
+    collapsed bucket.
 
     :param sowing_doy: day-of-year sowing anchor. Defaults to a rough,
         location-agnostic placeholder per crop (see
@@ -66,7 +66,7 @@ def generate_wofost_episode(
     model_class = getattr(pcse_models, wofost_model_name())
 
     print(f"building soil profile for longitude: {longitude}, latitude: {latitude}")
-    soil_data, static_features = build_soil_data(longitude, latitude)
+    soil_data, static_features = generate_soil_data_for_wofost(longitude, latitude)
 
     print(f"getting weather to run WOFOST for longitude: {longitude}, latitude: {latitude}, from {sowing_date}")
     weather_data_provider = request_openmeteo_weather(

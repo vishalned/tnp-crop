@@ -1,37 +1,16 @@
 import math
-from typing import Optional, Tuple
+from typing import Optional
 
 import pandas as pd
-import yaml
 from pcse.base import ParameterProvider
 from pcse.input import DummySoilDataProvider, WOFOST81SiteDataProvider_Classic, YAMLCropDataProvider
 from pcse.util import Afgen
 
-from src.data_pipeline.soil.generate_gee_soil_file import generate_soil_file_from_gee
 from src.data_pipeline.weather.utils_weather.openmeteo_weather import weather_provider_to_dataframe
 from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import (
     default_crop_parameters_dir,
     default_site_parameters,
 )
-
-
-def build_soil_data(longitude: float, latitude: float) -> Tuple[dict, dict]:
-    """Fetch a per-location, depth-resolved SoilGrids profile via Earth
-    Engine and assemble it into the PCSE multi-layer soil YAML
-    `Wofost81_WLP_MLWB` needs (`generate_gee_soil_file.generate_soil_file_from_gee`
-    -- van Genuchten curves tabulated per depth, no collapsing to a single
-    bucket). Requires the `earthengine-api` package and an authenticated GEE
-    project.
-
-    Returns `(soil_data, static_features)`: the parsed `SoilProfileDescription`
-    dict ready for `ParameterProvider`, and the topsoil-derived `awc`/
-    `bulk_density` CYBench-aligned static features (the multi-layer profile
-    doesn't otherwise expose single scalars for the whole soil column).
-    """
-    result = generate_soil_file_from_gee(longitude=longitude, latitude=latitude)
-    with open(result["path"]) as f:
-        soil_data = yaml.safe_load(f)
-    return soil_data, result["static_features"]
 
 
 def load_crop_data_provider(model_class, crop_name: str, variety_name: str) -> YAMLCropDataProvider:

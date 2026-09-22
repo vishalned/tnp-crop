@@ -51,6 +51,10 @@ git clone -b wofost81 https://github.com/herman-berghuijs/WOFOST_crop_parameters
 ```
 `data/` is gitignored, so this clone needs to be repeated on every machine that runs the WOFOST pipeline. See `default_wofost_variables.default_crop_parameters_dir()`.
 
+### Data dictionary
+
+For an explanation of every column/field the data pipeline produces (WOFOST's daily output columns like `DVS`/`LAI`, the derived `cwb`/`fpar`/`ssm` features, the summary JSON fields, and the soil YAML structure), see [`docs/data_dictionary.md`](docs/data_dictionary.md).
+
 ### Adding a package
 ```bash
 uv add requests                     # core dependency

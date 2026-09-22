@@ -1,9 +1,10 @@
 import argparse
 import os
 import sys
-from typing import Optional
+from typing import Optional, Tuple
 
 import rootutils
+import yaml
 from omegaconf import DictConfig
 
 from src.data_pipeline.soil.utils_soil.gee_soilgrids import get_df_soilgrids_gee
@@ -56,6 +57,29 @@ def generate_soil_file_from_gee(
 
     print(f"YAML soil file has been created at {path_file}.")
     return {"path": path_file, "static_features": static_features}
+
+
+def generate_soil_data_for_wofost(
+    longitude: float,
+    latitude: float,
+    output_dir: Optional[str] = None,
+    soil_cfg: Optional[DictConfig] = None,
+) -> Tuple[dict, dict]:
+    """`generate_soil_file_from_gee`, but returning the soil data ready to
+    hand to PCSE's `ParameterProvider` instead of just a file path -- the
+    equivalent of what `request_openmeteo_weather` already returns
+    ready-to-use for weather, since a WOFOST run needs the parsed
+    `SoilProfileDescription` dict, not the YAML file on disk.
+
+    Returns `(soil_data, static_features)`: the parsed dict, and the
+    topsoil-derived `awc`/`bulk_density` CYBench-aligned static features
+    (the multi-layer profile doesn't otherwise expose single scalars for the
+    whole soil column).
+    """
+    result = generate_soil_file_from_gee(longitude, latitude, output_dir, soil_cfg)
+    with open(result["path"]) as f:
+        soil_data = yaml.safe_load(f)
+    return soil_data, result["static_features"]
 
 
 def main():
