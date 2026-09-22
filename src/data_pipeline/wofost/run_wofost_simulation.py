@@ -9,10 +9,7 @@ import pcse.models as pcse_models
 import rootutils
 
 from src.data_pipeline.soil.generate_gee_soil_file import generate_soil_data_for_wofost
-from src.data_pipeline.weather.utils_weather.openmeteo_weather import (
-    dump_weather_provider,
-    request_openmeteo_weather,
-)
+from src.data_pipeline.weather.utils_weather.openmeteo_weather import request_openmeteo_weather
 from src.data_pipeline.wofost.utils_wofost.agromanagement import build_agromanagement, jitter_sowing_date
 from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import (
     default_crop_variety,
@@ -29,7 +26,6 @@ from src.data_pipeline.wofost.utils_wofost.pcse_runner import (
 
 root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 DEFAULT_WOFOST_SAVE_DIR = os.path.join(str(root), "data", "raw", "wofost")
-DEFAULT_WEATHER_ARCHIVE_DIR = os.path.join(str(root), "data", "raw", "weather")
 
 
 def generate_wofost_episode(
@@ -64,9 +60,11 @@ def generate_wofost_episode(
         file already exists for this (longitude, latitude). By default an
         existing soil file is reused as-is -- soil only depends on location,
         not on crop/year/sowing date, and GEE quota is the scarce resource.
-        Weather is always freshly fetched and archived (its date window
-        depends on the jittered sowing date, so a per-location/year file
-        isn't a clean cache key the way soil's is).
+        Weather is always freshly fetched and not cached or archived: its
+        date window depends on the jittered sowing date, so a per-location/
+        year file wouldn't be a clean cache key, and
+        `OpenMeteoWeatherDataProvider` already caches its own raw pulls
+        internally (~90 days).
     """
     variety_name = variety_name if variety_name is not None else default_crop_variety()[crop]
     anchor_doy = sowing_doy if sowing_doy is not None else default_sowing_doy()[crop]
@@ -89,12 +87,6 @@ def generate_wofost_episode(
         start_date=sowing_date,
         openmeteo_model=openmeteo_model,
     )
-
-    weather_save_dir = os.path.join(DEFAULT_WEATHER_ARCHIVE_DIR, crop)
-    weather_path = os.path.join(
-        weather_save_dir, f"weather_{crop}_{longitude}_{latitude}_{year}_{sowing_date.isoformat()}.csv"
-    )
-    dump_weather_provider(weather_data_provider, longitude, latitude, weather_path)
 
     params = build_parameter_provider(
         model_class=model_class,
@@ -145,14 +137,8 @@ def generate_wofost_episode(
 
     print(f"WOFOST daily trajectory written to {daily_path}.")
     print(f"WOFOST summary written to {summary_path}.")
-    print(f"Weather archived to {weather_path}.")
 
-    return {
-        "daily_path": daily_path,
-        "summary_path": summary_path,
-        "weather_path": weather_path,
-        "summary": summary_record,
-    }
+    return {"daily_path": daily_path, "summary_path": summary_path, "summary": summary_record}
 
 
 def main():

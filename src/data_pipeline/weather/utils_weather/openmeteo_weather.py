@@ -1,5 +1,4 @@
 import datetime
-import os
 from typing import Optional, Union
 
 import pandas as pd
@@ -78,28 +77,6 @@ def weather_provider_to_dataframe(
 
     df_weather = df_weather.sort_values("day").reset_index(drop=True)
     return df_weather
-
-
-def dump_weather_provider(
-    weather_data_provider: OpenMeteoWeatherDataProvider,
-    longitude: float,
-    latitude: float,
-    path_file: str,
-) -> str:
-    """Archive the daily weather a run actually consumed to a plain CSV.
-
-    This is a straight archival copy, not a cache to check before
-    re-fetching: unlike soil (one file per location, safe to skip
-    re-downloading if it already exists), the exact date window fetched
-    here depends on the sowing date used, which is jittered per run, so
-    "does a file for this location/year already exist" isn't a clean
-    reuse-check the way it is for soil. `OpenMeteoWeatherDataProvider`
-    already caches its own raw pulls internally (~90 days) regardless.
-    """
-    df_weather = weather_provider_to_dataframe(weather_data_provider, latitude, longitude)
-    os.makedirs(os.path.dirname(path_file), exist_ok=True)
-    df_weather.to_csv(path_file, index=False)
-    return path_file
 
 
 def get_df_weather(

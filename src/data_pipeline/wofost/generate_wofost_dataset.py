@@ -86,7 +86,6 @@ def generate_wofost_dataset(
                 "bulk_density": None,
                 "daily_path": None,
                 "summary_path": None,
-                "weather_path": None,
             }
             try:
                 result = generate_wofost_episode(
@@ -108,7 +107,6 @@ def generate_wofost_dataset(
                     bulk_density=summary.get("bulk_density"),
                     daily_path=result["daily_path"],
                     summary_path=result["summary_path"],
-                    weather_path=result["weather_path"],
                 )
             except Exception as e:
                 row["error"] = f"{type(e).__name__}: {e}"
