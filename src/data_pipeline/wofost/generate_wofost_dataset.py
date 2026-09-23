@@ -5,6 +5,7 @@ wofost_synthetic_pretraining_plan, run at whatever scale you point it at.
 """
 
 import argparse
+import datetime
 import os
 import random
 import sys
@@ -14,30 +15,78 @@ from typing import Optional
 import pandas as pd
 import rootutils
 
+from src.data_pipeline.weather.utils_weather.gee_weather import get_gee_weather_provider_for_location
 from src.data_pipeline.wofost.run_wofost_simulation import DEFAULT_WOFOST_SAVE_DIR, generate_wofost_episode
+from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import (
+    default_max_duration_days,
+    default_sowing_doy,
+)
 
 
 root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 
-def _sample_years(rng: random.Random, start_year: int, end_year: int, num_years: int) -> list:
+def _sample_year_window(
+    rng: random.Random, start_year: int, end_year: int, num_years: Optional[int]
+) -> list:
+    """`num_years` consecutive years inside `[start_year, end_year]`, starting
+    at a random year (so the whole window fits in the range). `num_years=None`
+    (or >= the range length) returns every year in the range.
+
+    Consecutive rather than scattered years: it matches CYBench's
+    contiguous per-region year series, and neighbouring seasons share
+    weather (a wheat season sown in Oct runs into the next year), so a
+    location's weather comes down in one contiguous block. The random start
+    per location spreads coverage over the whole range across locations.
+    """
     available = end_year - start_year + 1
-    k = min(num_years, available)
-    return sorted(rng.sample(range(start_year, end_year + 1), k=k))
+    if available < 1:
+        raise ValueError(f"end_year ({end_year}) must be >= start_year ({start_year}).")
+    if num_years is None or num_years >= available:
+        return list(range(start_year, end_year + 1))
+    first = rng.randint(start_year, end_year - num_years + 1)
+    return list(range(first, first + num_years))
+
+
+def _prefetch_weather_for_window(
+    longitude: float, latitude: float, crop: str, years: list, sowing_jitter_days: int
+) -> None:
+    """Download a location's weather for its whole year window in one go,
+    before its episodes run, so each episode is then a cache hit.
+
+    Covers Jan 1 of the first year up to the latest date any episode in the
+    window can ask for: the last year's sowing day (+ jitter) + the crop's
+    max season length -- e.g. into the following year for winter wheat.
+    Failures are only printed: each episode retries the fetch itself and
+    records its own failure in the manifest.
+    """
+    last_needed = datetime.date(years[-1], 1, 1) + datetime.timedelta(
+        days=default_sowing_doy()[crop] - 1 + sowing_jitter_days + default_max_duration_days()[crop]
+    )
+    try:
+        get_gee_weather_provider_for_location(
+            latitude=latitude,
+            longitude=longitude,
+            start_date=datetime.date(years[0], 1, 1),
+            end_date=last_needed,
+        )
+    except Exception as e:
+        print(f"  Weather prefetch failed ({type(e).__name__}: {e}); episodes will retry individually.")
 
 
 def generate_wofost_dataset(
     locations: list,
     crop: Optional[str] = None,
-    num_years: int = 5,
-    start_year: int = 2000,
-    end_year: int = 2023,
+    num_years: Optional[int] = 5,
+    start_year: int = 2010,
+    end_year: int = 2024,
     sowing_jitter_days: int = 10,
     seed: Optional[int] = None,
     output_dir: Optional[str] = None,
 ) -> dict:
-    """Run WOFOST episodes for a batch of locations, `num_years` years
-    sampled (without replacement) per location from `[start_year, end_year]`,
+    """Run WOFOST episodes for a batch of locations, `num_years` consecutive
+    years per location (a window with a random start, fitting inside
+    `[start_year, end_year]`; `num_years=None` runs every year in the range),
     and write one manifest CSV (`dataset_manifest.csv`, one row per attempted
     episode) alongside the per-episode files `generate_wofost_episode`
     already writes.
@@ -67,7 +116,11 @@ def generate_wofost_dataset(
                 f"No crop given for location #{i} ({longitude}, {latitude}) and no default --crop set."
             )
 
-        for year in _sample_years(rng, start_year, end_year, num_years):
+        years = _sample_year_window(rng, start_year, end_year, num_years)
+        print(f"[{i + 1}/{len(locations)}] {location_crop} at ({longitude}, {latitude}), years {years[0]}-{years[-1]}")
+        _prefetch_weather_for_window(longitude, latitude, location_crop, years, sowing_jitter_days)
+
+        for year in years:
             episode_seed = rng.randint(0, 2**31 - 1)
             print(f"[{i + 1}/{len(locations)}] {location_crop} at ({longitude}, {latitude}), year {year}")
 
@@ -136,7 +189,7 @@ def main():
         print("No arguments provided!")
         print(
             "Usage: python generate_wofost_dataset.py --locations-csv <path> [--crop <wheat|maize>] "
-            "[--num-years <n>] [--start-year <y>] [--end-year <y>] [--sowing-jitter-days <days>] "
+            "[--num-years <n> | --all-years] [--start-year <y>] [--end-year <y>] [--sowing-jitter-days <days>] "
             "[--seed <int>] [--output-dir <path>]"
         )
         print(
@@ -150,9 +203,10 @@ def main():
     )
     parser.add_argument("--locations-csv", dest="locations_csv", type=str, required=True, help="CSV with 'longitude'/'latitude' columns (and optional 'crop' column).")
     parser.add_argument("--crop", dest="crop", type=str, default=None, choices=["wheat", "maize"], help="Default crop for locations that don't specify their own.")
-    parser.add_argument("--num-years", dest="num_years", type=int, default=5, help="Number of years sampled per location.")
-    parser.add_argument("--start-year", dest="start_year", type=int, default=2000)
-    parser.add_argument("--end-year", dest="end_year", type=int, default=2023)
+    parser.add_argument("--num-years", dest="num_years", type=int, default=5, help="Number of consecutive years per location (window with a random start inside [start-year, end-year]).")
+    parser.add_argument("--all-years", dest="all_years", action="store_true", help="Run every year in [start-year, end-year] for each location (overrides --num-years).")
+    parser.add_argument("--start-year", dest="start_year", type=int, default=2010, help="First year a window may include.")
+    parser.add_argument("--end-year", dest="end_year", type=int, default=2024, help="Last year a window may include (season year = sowing year).")
     parser.add_argument("--sowing-jitter-days", dest="sowing_jitter_days", type=int, default=10)
     parser.add_argument("--seed", dest="seed", type=int, default=None)
     parser.add_argument("-o", "--output-dir", dest="output_dir", type=str, default=DEFAULT_WOFOST_SAVE_DIR)
@@ -164,7 +218,7 @@ def main():
     generate_wofost_dataset(
         locations=locations,
         crop=args.crop,
-        num_years=args.num_years,
+        num_years=None if args.all_years else args.num_years,
         start_year=args.start_year,
         end_year=args.end_year,
         sowing_jitter_days=args.sowing_jitter_days,

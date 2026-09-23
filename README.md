@@ -25,8 +25,9 @@ uv run python src/train.py experiment=tnp_synthetic
 uv run python -m src.data_pipeline.soil.generate_soilgrids_soil_file -lon 6.656 -lat 52.966
 uv run python -m src.data_pipeline.weather.generate_weather_file -lon 6.656 -lat 52.966 --start-date 2000-01-01 --end-date 2023-12-31
 uv run python -m src.data_pipeline.wofost.run_wofost_simulation -lon 6.656 -lat 52.966 --crop wheat --year 2020
-uv run python -m src.data_pipeline.wofost.generate_wofost_dataset --locations-csv path/to/locations.csv --crop wheat --num-years 5 --start-year 2000 --end-year 2023
+uv run python -m src.data_pipeline.wofost.generate_wofost_dataset --locations-csv path/to/locations.csv --crop wheat --num-years 5 --start-year 2010 --end-year 2024
 ```
+The batch runner simulates `--num-years` **consecutive** years per location, starting at a random year chosen so the window fits inside `[--start-year, --end-year]` (reproducible with `--seed`); `--all-years` runs every year in that range instead. Each location's weather for the whole window is downloaded from GEE in one go before its episodes run.
 Soil and weather (ERA5-Land daily, `src/data_pipeline/weather/utils_weather/gee_weather.py`) for the WOFOST run are pulled per location via Google Earth Engine (see "Google Earth Engine setup" below), and crop parameters are read from a local clone of the WOFOST_crop_parameters repo (see "Crop parameters" below) — both are one-time setup steps needed before the WOFOST commands above will run.
 
 ### Google Earth Engine setup
