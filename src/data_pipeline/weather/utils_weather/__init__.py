@@ -10,6 +10,10 @@ from src.data_pipeline.weather.utils_weather.openmeteo_weather import (
     get_df_weather,
     weather_provider_to_dataframe,
 )
+from src.data_pipeline.weather.utils_weather.gee_weather import (
+    get_gee_weather_provider_for_location,
+    get_df_weather_gee,
+)
 
 __all__ = [
     "default_weather_variables",
@@ -20,4 +24,6 @@ __all__ = [
     "CachedWeatherDataProvider",
     "get_df_weather",
     "weather_provider_to_dataframe",
+    "get_gee_weather_provider_for_location",
+    "get_df_weather_gee",
 ]

@@ -27,11 +27,11 @@ uv run python -m src.data_pipeline.weather.generate_weather_file -lon 6.656 -lat
 uv run python -m src.data_pipeline.wofost.run_wofost_simulation -lon 6.656 -lat 52.966 --crop wheat --year 2020
 uv run python -m src.data_pipeline.wofost.generate_wofost_dataset --locations-csv path/to/locations.csv --crop wheat --num-years 5 --start-year 2000 --end-year 2023
 ```
-Soil for the WOFOST run is pulled per location via Google Earth Engine (see "Google Earth Engine setup" below), and crop parameters are read from a local clone of the WOFOST_crop_parameters repo (see "Crop parameters" below) — both are one-time setup steps needed before the WOFOST commands above will run.
+Soil and weather (ERA5-Land daily, `src/data_pipeline/weather/utils_weather/gee_weather.py`) for the WOFOST run are pulled per location via Google Earth Engine (see "Google Earth Engine setup" below), and crop parameters are read from a local clone of the WOFOST_crop_parameters repo (see "Crop parameters" below) — both are one-time setup steps needed before the WOFOST commands above will run.
 
 ### Google Earth Engine setup
 
-The GEE-based soil pipeline (`src/data_pipeline/soil/utils_soil/gee_soilgrids.py`, used by `generate_gee_soil_file.py` and the WOFOST runner) needs an authenticated Earth Engine project.
+The GEE-based soil pipeline (`src/data_pipeline/soil/utils_soil/gee_soilgrids.py`, used by `generate_gee_soil_file.py` and the WOFOST runner) and the GEE weather pipeline (`gee_weather.py`, used by the WOFOST runner and `generate_weather_file.py`) need an authenticated Earth Engine project.
 
 Authenticate **from inside Python, in the `uv` environment** — running `earthengine authenticate` directly from the shell did not work reliably:
 ```bash

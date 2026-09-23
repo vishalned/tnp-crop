@@ -10,7 +10,7 @@ import pcse.models as pcse_models
 import rootutils
 
 from src.data_pipeline.soil.generate_gee_soil_file import generate_soil_data_for_wofost
-from src.data_pipeline.weather.utils_weather.openmeteo_weather import get_weather_provider_for_location
+from src.data_pipeline.weather.utils_weather.gee_weather import get_gee_weather_provider_for_location
 from src.data_pipeline.wofost.utils_wofost.agromanagement import build_agromanagement, jitter_sowing_date
 from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import (
     default_crop_variety,
@@ -37,7 +37,6 @@ def generate_wofost_episode(
     variety_name: Optional[str] = None,
     sowing_doy: Optional[int] = None,
     sowing_jitter_days: int = 10,
-    openmeteo_model: Optional[str] = None,
     seed: Optional[int] = None,
     output_dir: Optional[str] = None,
     force_refresh_soil: bool = False,
@@ -61,9 +60,10 @@ def generate_wofost_episode(
         file already exists for this (longitude, latitude). By default an
         existing soil file is reused as-is -- soil only depends on location,
         not on crop/year/sowing date, and GEE quota is the scarce resource.
-        Weather is also cached per location (the whole period from
-        `default_weather_start_date()` to the present, fetched once); see
-        `openmeteo_weather.get_weather_provider_for_location`.
+        Weather (ERA5-Land from Earth Engine) is also cached per location:
+        the whole period from `default_weather_start_date()` to the present
+        is fetched in one request; see
+        `gee_weather.get_gee_weather_provider_for_location`.
     """
     variety_name = variety_name if variety_name is not None else default_crop_variety()[crop]
     anchor_doy = sowing_doy if sowing_doy is not None else default_sowing_doy()[crop]
@@ -80,12 +80,11 @@ def generate_wofost_episode(
     )
 
     print(f"getting weather to run WOFOST for longitude: {longitude}, latitude: {latitude}, from {sowing_date}")
-    weather_data_provider = get_weather_provider_for_location(
+    weather_data_provider = get_gee_weather_provider_for_location(
         latitude=latitude,
         longitude=longitude,
         start_date=sowing_date,
         end_date=sowing_date + datetime.timedelta(days=max_duration),
-        openmeteo_model=openmeteo_model,
     )
 
     params = build_parameter_provider(
@@ -147,7 +146,7 @@ def main():
         print(
             "Usage: python run_wofost_simulation.py --lon <longitude> --lat <latitude> "
             "--crop <wheat|maize> --year <year> [--sowing-doy <doy>] "
-            "[--sowing-jitter-days <days>] [--openmeteo-model era5_land] "
+            "[--sowing-jitter-days <days>] "
             "[--seed <int>] [--output-dir <path>] [--force-refresh-soil]"
         )
         print("Example: python run_wofost_simulation.py -lon 6.656 -lat 52.966 --crop wheat --year 2020")
@@ -161,7 +160,6 @@ def main():
     parser.add_argument("--variety-name", dest="variety_name", type=str, default=None)
     parser.add_argument("--sowing-doy", dest="sowing_doy", type=int, default=None)
     parser.add_argument("--sowing-jitter-days", dest="sowing_jitter_days", type=int, default=10)
-    parser.add_argument("--openmeteo-model", dest="openmeteo_model", type=str, default=None)
     parser.add_argument("--seed", dest="seed", type=int, default=None)
     parser.add_argument("-o", "--output-dir", dest="output_dir", type=str, default=DEFAULT_WOFOST_SAVE_DIR)
     parser.add_argument("--force-refresh-soil", dest="force_refresh_soil", action="store_true", help="Re-query Earth Engine for soil even if a soil file already exists for this location.")
@@ -176,7 +174,6 @@ def main():
         variety_name=args.variety_name,
         sowing_doy=args.sowing_doy,
         sowing_jitter_days=args.sowing_jitter_days,
-        openmeteo_model=args.openmeteo_model,
         seed=args.seed,
         output_dir=args.output_dir,
         force_refresh_soil=args.force_refresh_soil,

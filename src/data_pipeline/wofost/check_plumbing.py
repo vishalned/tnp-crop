@@ -18,7 +18,7 @@ from typing import Optional
 import pcse.models as pcse_models
 import rootutils
 
-from src.data_pipeline.weather.utils_weather.openmeteo_weather import get_weather_provider_for_location
+from src.data_pipeline.weather.utils_weather.gee_weather import get_gee_weather_provider_for_location
 from src.data_pipeline.wofost.utils_wofost.agromanagement import build_agromanagement, jitter_sowing_date
 from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import (
     default_crop_variety,
@@ -40,7 +40,6 @@ def check_plumbing(
     variety_name: Optional[str] = None,
     sowing_doy: Optional[int] = None,
     sowing_jitter_days: int = 10,
-    openmeteo_model: Optional[str] = None,
     seed: Optional[int] = None,
 ) -> dict:
     variety_name = variety_name if variety_name is not None else default_crop_variety()[crop]
@@ -53,12 +52,11 @@ def check_plumbing(
     model_class = getattr(pcse_models, plumbing_check_model_name())
 
     print(f"getting weather for longitude: {longitude}, latitude: {latitude}, from {sowing_date}")
-    weather_data_provider = get_weather_provider_for_location(
+    weather_data_provider = get_gee_weather_provider_for_location(
         latitude=latitude,
         longitude=longitude,
         start_date=sowing_date,
         end_date=sowing_date + datetime.timedelta(days=max_duration),
-        openmeteo_model=openmeteo_model,
     )
 
     params = build_parameter_provider(

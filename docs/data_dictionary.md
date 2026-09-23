@@ -11,7 +11,8 @@ and the matching `..._summary.json`).
 |---|---|---|
 | `data/raw/soilgrids_gee/soil_{lon}_{lat}.yaml` | Multi-layer PCSE soil profile for a location | **Cached** — reused if it already exists (soil only depends on location; GEE quota is the scarce resource). Pass `force_refresh=True` / `--force-refresh-soil` to bypass. |
 | `data/raw/soilgrids_gee/soil_{lon}_{lat}_static_features.json` | Sidecar with the topsoil `awc`/`bulk_density` for that same location | Cached alongside the YAML above. |
-| `data/raw/weather/weather_{lon}_{lat}_{model}.csv` | All daily weather for a location, from `default_weather_start_date()` (2000-01-01) to the present, in one file | **Cached**: downloaded once per location and reused for every year simulated there. It is re-fetched only if a run needs dates it doesn't cover, in which case it's extended back to the requested start. Fetches bypass PCSE's own `~/.pcse/meteo_cache`, which is keyed on a 0.1°-truncated location and ignores the requested start date. |
+| `data/raw/weather/weather_{lon}_{lat}_gee_era5_land.csv` | All daily ERA5-Land weather for a location (from Earth Engine `ECMWF/ERA5_LAND/DAILY_AGGR`), from `default_weather_start_date()` (2000-01-01) to the latest published day, in one file, already in PCSE units incl. `E0`/`ES0`/`ET0`. **Active source** (`gee_weather.get_gee_weather_provider_for_location`). | **Cached**: fetched in a single `getRegion` request per location and reused for every year/sowing date simulated there. Re-fetched only if a run needs an earlier start (extended back), or a later end than cached *and* the file is more than 7 days old (ERA5-Land is published with a lag of a few months). |
+| `data/raw/weather/weather_{lon}_{lat}_{model}.csv` | Same idea from Open-Meteo (`openmeteo_weather.get_weather_provider_for_location`). Kept as an alternative, but no longer called by the pipeline because of Open-Meteo's free-tier rate limits (HTTP 429). | Cached per location, as above. |
 | `data/raw/wofost/{crop}/wofost_{crop}_{lon}_{lat}_{year}_{sowing_date}.csv` + `..._summary.json` | One simulation episode's daily trajectory + summary | Always freshly written, one pair per episode. |
 | `data/raw/wofost/dataset_manifest.csv` | One row per episode attempted by `generate_wofost_dataset.py`, `status`/`error` plus the summary fields and file paths | Written incrementally by the batch runner; not itself a cache. |
 
@@ -66,14 +67,14 @@ always-unconstrained N economy, not simulated soil nitrogen availability:
 | `NuptakeTotal` | Cumulative N taken up so far | kg N/ha |
 | `NamountSO`/`NamountLV`/`NamountST`/`NamountRT` | N content of storage organs / leaves / stems / roots | kg N/ha |
 
-### Weather drivers (joined in from the OpenMeteo pull, not PCSE output)
+### Weather drivers (joined in from the GEE ERA5-Land pull, not PCSE output)
 
 | Column | Meaning | Unit |
 |---|---|---|
 | `TMIN` / `TMAX` / `TEMP` | Daily min / max / average air temperature | °C |
 | `RAIN` | Daily precipitation | cm/day |
 | `IRRAD` | Daily global radiation | J/m²/day |
-| `ET0` | Reference evapotranspiration (computed by the OpenMeteo weather provider) | cm/day |
+| `ET0` | Reference evapotranspiration, Penman-Monteith via PCSE's `reference_ET` (computed in `gee_weather.era5_land_to_pcse_records`) | cm/day |
 
 ### Derived features (CYBench-feature-set-aligned; see `pcse_runner.merge_weather_and_derive_features`)
 
