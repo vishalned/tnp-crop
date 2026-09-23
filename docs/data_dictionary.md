@@ -132,3 +132,45 @@ Produced by `generate_gee_soil_file.py` from the GEE SoilGrids pull, via
 
 See `default_soilgrid_d_factors()` for the raw-SoilGrids-integer → these
 units conversion factors.
+
+## Processed training table (`data/processed/wofost_{crop}_{aggregation}.csv`)
+
+Built by `src/data_pipeline/wofost/process_wofost_dataset.py` from a batch
+run's `dataset_manifest.csv` (successful episodes only), the episodes'
+daily CSVs and the per-location weather caches. One file per crop, plus a
+`..._columns.json` sidecar listing the column groups.
+
+**One row = one simulated growing season** (sowing -> maturity) at one
+location, the same unit as a CYBench row (region x season). `year` is the
+**harvest year** (CYBench convention): winter wheat sown Oct 2013 and
+harvested Jul 2014 has `year = 2014`, `sowing_year = 2013`.
+
+| Column(s) | Meaning |
+|---|---|
+| `sample_id`, `location_index`, `location_id`, `crop`, `year`, `sowing_year` | Identifiers (`location_id` = `"{lon}_{lat}"`) |
+| `latitude`, `longitude`, `awc`, `bulk_density` | Static features (soil ones from the topsoil, as in the summary JSON) |
+| `sos_doy` | Nominal start-of-season day of year for the crop (`default_sowing_doy()`, stand-in for the WorldCereal SOS) |
+| `sowing_doy`, `sowing_date` | Actual (jittered) sowing day |
+| `maturity_date`, `season_length_days`, `reached_maturity` | When DVS reached 2 (metadata — not known at forecast time, don't use as an input feature) |
+| `window_start` | Date bucket 0 starts on |
+| `yield_t_per_ha` / `yield_kg_per_ha` | **Target**: `TWSO` (storage-organ dry matter) at maturity |
+| `{feature}_{prefix}{k:02d}` | Time series, bucket `k` counted from `window_start`; prefix `w` weekly, `dk` dekadal, `bw` biweekly, `m` monthly (30 days), `d` daily, `b` custom |
+
+Bucket 0 starts at the crop's nominal season start that year (`--align
+season_start`, default) or at the actual sowing date (`--align sowing`).
+Every row of a crop has `ceil(max_duration / bucket_days)` buckets (wheat:
+53 weekly), independent of when the crop matured. Each value is the
+**mean over the bucket's days**:
+
+| Feature | Source | Unit |
+|---|---|---|
+| `tmin`, `tmax`, `tavg` | weather cache | °C |
+| `prec` | weather cache (`RAIN`) | mm/day |
+| `rad` | weather cache (`IRRAD`) | MJ/m²/day |
+| `et0` | weather cache (`ET0`) | mm/day |
+| `cwb` | `prec - et0` | mm/day |
+| `fpar` | daily WOFOST CSV | fraction; 0 before sowing and after maturity (bare field) |
+| `ssm` | daily WOFOST CSV (`SM_layer0`) | cm³/cm³; NaN before sowing and after maturity (not simulated) |
+
+Note: WOFOST's `TWSO` is dry matter, while reported (e.g. CYBench) yields
+are usually at a standard moisture content, so absolute levels differ.

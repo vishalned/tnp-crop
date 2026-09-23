@@ -28,6 +28,12 @@ uv run python -m src.data_pipeline.wofost.run_wofost_simulation -lon 6.656 -lat 
 uv run python -m src.data_pipeline.wofost.generate_wofost_dataset --locations-csv path/to/locations.csv --crop wheat --num-years 5 --start-year 2010 --end-year 2024
 ```
 The batch runner simulates `--num-years` **consecutive** years per location, starting at a random year chosen so the window fits inside `[--start-year, --end-year]` (reproducible with `--seed`); `--all-years` runs every year in that range instead. Each location's weather for the whole window is downloaded from GEE in one go before its episodes run. Locations run in parallel over `--workers` processes (default `min(8, cpu count)`; `--workers 1` = sequential); rows sharing the same coordinates always go to the same worker so they never write the same soil/weather cache file at once, and the same `--seed` gives the same episodes whatever the worker count. On an HPC cluster, run it inside a job with as many CPUs as `--workers` rather than on a login node.
+
+Turn a finished batch run into training tables (one row per simulated growing season, labelled with the harvest year; weekly buckets by default — `--aggregation dekadal|biweekly|monthly|daily|<days>`):
+```bash
+uv run python -m src.data_pipeline.wofost.process_wofost_dataset --manifest data/raw/wofost/dataset_manifest.csv --aggregation weekly
+```
+This writes `data/processed/wofost_{crop}_{aggregation}.csv` plus a `..._columns.json` listing the id, static-feature, time-series and target columns (see `docs/data_dictionary.md`).
 Soil and weather (ERA5-Land daily, `src/data_pipeline/weather/utils_weather/gee_weather.py`) for the WOFOST run are pulled per location via Google Earth Engine (see "Google Earth Engine setup" below), and crop parameters are read from a local clone of the WOFOST_crop_parameters repo (see "Crop parameters" below) — both are one-time setup steps needed before the WOFOST commands above will run.
 
 ### Google Earth Engine setup
