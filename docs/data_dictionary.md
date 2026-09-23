@@ -11,10 +11,9 @@ and the matching `..._summary.json`).
 |---|---|---|
 | `data/raw/soilgrids_gee/soil_{lon}_{lat}.yaml` | Multi-layer PCSE soil profile for a location | **Cached** — reused if it already exists (soil only depends on location; GEE quota is the scarce resource). Pass `force_refresh=True` / `--force-refresh-soil` to bypass. |
 | `data/raw/soilgrids_gee/soil_{lon}_{lat}_static_features.json` | Sidecar with the topsoil `awc`/`bulk_density` for that same location | Cached alongside the YAML above. |
+| `data/raw/weather/weather_{lon}_{lat}_{model}.csv` | All daily weather for a location, from `default_weather_start_date()` (2000-01-01) to the present, in one file | **Cached**: downloaded once per location and reused for every year simulated there. It is re-fetched only if a run needs dates it doesn't cover, in which case it's extended back to the requested start. Fetches bypass PCSE's own `~/.pcse/meteo_cache`, which is keyed on a 0.1°-truncated location and ignores the requested start date. |
 | `data/raw/wofost/{crop}/wofost_{crop}_{lon}_{lat}_{year}_{sowing_date}.csv` + `..._summary.json` | One simulation episode's daily trajectory + summary | Always freshly written, one pair per episode. |
 | `data/raw/wofost/dataset_manifest.csv` | One row per episode attempted by `generate_wofost_dataset.py`, `status`/`error` plus the summary fields and file paths | Written incrementally by the batch runner; not itself a cache. |
-
-Weather is fetched fresh for every episode and not written to disk at all: the exact date window depends on the jittered sowing date, so there's no clean per-location/year cache key for it, and with no reuse-check to serve, an archival copy wasn't worth keeping. `OpenMeteoWeatherDataProvider` still caches its own raw pulls internally (~90 days) regardless.
 
 Model: [`Wofost81_WLP_MLWB`](https://pcse.readthedocs.io) — water-limited
 production, multi-layer waterbalance, no nitrogen/SNOMIN (see
