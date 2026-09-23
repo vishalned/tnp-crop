@@ -88,7 +88,7 @@ def generate_soil_data_for_wofost(
 ) -> Tuple[dict, dict]:
     """`generate_soil_file_from_gee`, but returning the soil data ready to
     hand to PCSE's `ParameterProvider` instead of just a file path -- the
-    equivalent of what `get_weather_provider_for_location` already returns
+    equivalent of what `get_gee_weather_provider_for_location` already returns
     ready-to-use for weather, since a WOFOST run needs the parsed
     `SoilProfileDescription` dict, not the YAML file on disk.
 

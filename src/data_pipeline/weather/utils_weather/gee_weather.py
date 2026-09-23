@@ -1,6 +1,6 @@
 """ERA5-Land daily weather from Google Earth Engine, as a PCSE weather provider.
 
-Drop-in alternative to `openmeteo_weather.get_weather_provider_for_location`
+Alternative to `openmeteo_weather.request_openmeteo_weather`
 that avoids Open-Meteo's free-tier rate limits (HTTP 429). The Open-Meteo
 module is left untouched; this one sits alongside it.
 
@@ -8,16 +8,14 @@ Source: `ECMWF/ERA5_LAND/DAILY_AGGR` -- the same ERA5-Land reanalysis
 Open-Meteo's `era5_land` model serves, pre-aggregated to daily values by
 Google (days are UTC days).
 
-Request pattern: the whole period for a location
-(`default_weather_start_date()` to the latest available day) is fetched with
-a handful of `ImageCollection.getRegion` calls, each covering
-`DEFAULT_CHUNK_YEARS` years (~5-6 calls per location, all bands at once),
-plus one tiny call for elevation. A single call for all ~25 years fails
-with Earth Engine's "User memory limit exceeded"; chunks that still hit a
-memory limit or timeout are halved and retried automatically. The result is
-cached per location in
-`data/raw/weather/weather_{lon}_{lat}_gee_era5_land.csv` and every
-year/sowing date simulated there is cut from that file.
+Request pattern: only the calendar years a run actually needs are fetched
+(e.g. 2005-2006 for a wheat season sown in Oct 2005), all bands at once, in
+`ImageCollection.getRegion` calls of at most `DEFAULT_CHUNK_YEARS` years,
+plus one tiny call for elevation. They are merged into one cache file per
+location, `data/raw/weather/weather_{lon}_{lat}_gee_era5_land.csv`, so
+years shared between runs at that location are downloaded once. (A single
+call for ~25 years fails with Earth Engine's "User memory limit exceeded";
+chunks that still hit a memory limit or timeout are halved and retried.)
 
 Conversions mirror PCSE's `OpenMeteoWeatherDataProvider._prepare_weather_dataframe`
 so both sources produce the same PCSE record layout
@@ -38,11 +36,9 @@ from pcse.util import check_angstromAB, reference_ET, wind10to2
 
 from src.data_pipeline.soil.utils_soil.gee_soilgrids import ensure_ee_initialized
 from src.data_pipeline.weather.utils_weather.default_weather_variables import default_weather_start_date
-from src.data_pipeline.weather.utils_weather.openmeteo_weather import (
-    CachedWeatherDataProvider,
-    _load_weather_cache,
-    weather_provider_to_dataframe,
-)
+from pcse.base.weather import WeatherDataContainer
+
+from src.data_pipeline.weather.utils_weather.openmeteo_weather import weather_provider_to_dataframe
 
 log = logging.getLogger(__name__)
 
@@ -97,6 +93,42 @@ def _import_ee():
     import ee
 
     return ee
+
+
+class CachedWeatherDataProvider(WeatherDataProvider):
+    """A PCSE weather provider built from PCSE weather records (dicts with
+    DAY, LAT, LON, ELEV, TMIN, ..., ET0), e.g. those read back from the
+    per-location weather cache file."""
+
+    def __init__(self, records: list, latitude: float, longitude: float, description: str):
+        WeatherDataProvider.__init__(self)
+        self.latitude = latitude
+        self.longitude = longitude
+        self.elevation = records[0]["ELEV"]
+        self.description = [description]
+        for rec in records:
+            wdc = WeatherDataContainer(**rec)
+            self._store_WeatherDataContainer(wdc, wdc.DAY)
+
+
+def _load_weather_cache(path: str) -> list:
+    df = pd.read_csv(path)
+    df["DAY"] = pd.to_datetime(df["DAY"]).dt.date
+    records = []
+    for rec in df.to_dict(orient="records"):
+        records.append({k: v for k, v in rec.items() if not (isinstance(v, float) and pd.isna(v))})
+    return records
+
+
+def _year_runs(years: list) -> list:
+    """Group sorted years into runs of consecutive years: [2000, 2001, 2005] -> [(2000, 2001), (2005, 2005)]."""
+    runs = []
+    for y in years:
+        if runs and y == runs[-1][1] + 1:
+            runs[-1] = (runs[-1][0], y)
+        else:
+            runs.append((y, y))
+    return runs
 
 
 def _weather_cache_path(longitude: float, latitude: float, cache_dir: str) -> str:
@@ -296,24 +328,29 @@ def get_gee_weather_provider_for_location(
     cache_dir: Optional[str] = None,
     force_refresh: bool = False,
 ) -> WeatherDataProvider:
-    """GEE ERA5-Land counterpart of
-    `openmeteo_weather.get_weather_provider_for_location`: a PCSE weather
-    provider for a location covering at least [start_date, end_date],
-    downloaded at most once per location.
+    """PCSE weather provider for a location covering [start_date, end_date],
+    fetching from GEE only the calendar years that aren't cached yet.
 
-    The whole period from `default_weather_start_date()` (or `start_date`,
-    if earlier) up to today is requested in one `getRegion` call (GEE simply
-    returns up to the latest published day) and saved to
-    `data/raw/weather/weather_{lon}_{lat}_gee_era5_land.csv`, keyed only on
-    the exact coordinates. Every later call at that location -- any year,
-    any sowing date -- is cut from that file.
+    One cache file per location,
+    `data/raw/weather/weather_{lon}_{lat}_gee_era5_land.csv`, holding
+    whichever years have been fetched so far (not necessarily contiguous).
+    A run for sowing date 2005-10-15 with a 300-day season needs 2005 and
+    2006. If both are cached, nothing is downloaded. If only 2005 is, just
+    2006 is fetched (Jan 1 - Dec 31, or up to today for the current year)
+    and merged into the file. So a location simulated for 5 sampled years
+    only ever downloads those ~5-10 years, not the whole record.
 
-    It is re-fetched only if:
-    - `start_date` is earlier than the cache (extended back, keeping the
-      existing start as a lower bound), or
-    - `end_date` is later than the cache *and* the cache is older than
-      `CACHE_END_RECHECK_DAYS` (new ERA5-Land days may have been published), or
-    - `force_refresh=True`.
+    Whole calendar years (rather than just the season) are fetched so that
+    overlapping seasons of neighbouring years share downloads and every
+    block has enough days (>= 200) for the Angstrom A/B estimate used in
+    E0/ES0.
+
+    Days at the end of the requested range that ERA5-Land hasn't published
+    yet (it lags a few months) don't trigger a re-fetch if the cache file
+    was written less than `CACHE_END_RECHECK_DAYS` ago.
+
+    `start_date` defaults to `default_weather_start_date()` and `end_date`
+    to today. `force_refresh=True` re-fetches the requested years even if cached.
     """
     cache_dir = cache_dir if cache_dir is not None else DEFAULT_WEATHER_CACHE_DIR
     if start_date is None:
@@ -329,25 +366,36 @@ def get_gee_weather_provider_for_location(
     path = _weather_cache_path(longitude, latitude, cache_dir)
     description = f"GEE ERA5-Land daily weather for lon={longitude}, lat={latitude} (cached at {path})"
 
-    cached_start = None
-    if os.path.exists(path) and not force_refresh:
-        records = _load_weather_cache(path)
-        cached_start, cached_end = records[0]["DAY"], records[-1]["DAY"]
+    records = _load_weather_cache(path) if os.path.exists(path) else []
+    cached_days = {r["DAY"] for r in records}
+    needed_days = pd.date_range(start_date, needed_end, freq="D").date
+    missing_days = [d for d in needed_days if force_refresh or d not in cached_days]
+
+    if missing_days and records and not force_refresh:
         cache_age_days = (
             datetime.datetime.now() - datetime.datetime.fromtimestamp(os.path.getmtime(path))
         ).days
-        covers_start = cached_start <= start_date
-        covers_end = cached_end >= needed_end or cache_age_days < CACHE_END_RECHECK_DAYS
-        if covers_start and covers_end:
-            print(f"Weather cache hit for longitude: {longitude}, latitude: {latitude} ({path}).")
-            return CachedWeatherDataProvider(records, latitude, longitude, description)
+        latest_cached = max(cached_days)
+        if all(d > latest_cached for d in missing_days) and latest_cached.year == needed_end.year \
+                and cache_age_days < CACHE_END_RECHECK_DAYS:
+            # Only not-yet-published trailing days are missing; checked recently.
+            missing_days = []
 
-    fetch_start = min(start_date, default_weather_start_date())
-    if cached_start is not None:
-        fetch_start = min(fetch_start, cached_start)
+    if not missing_days:
+        print(f"Weather cache hit for longitude: {longitude}, latitude: {latitude} ({path}).")
+        return CachedWeatherDataProvider(records, latitude, longitude, description)
 
-    df_raw = request_gee_era5_land_raw(latitude, longitude, fetch_start, today)
-    records = era5_land_to_pcse_records(df_raw, latitude, longitude)
+    new_records = []
+    for first_year, last_year in _year_runs(sorted({d.year for d in missing_days})):
+        fetch_start = datetime.date(first_year, 1, 1)
+        fetch_end = min(datetime.date(last_year, 12, 31), today)
+        df_raw = request_gee_era5_land_raw(latitude, longitude, fetch_start, fetch_end)
+        new_records.extend(era5_land_to_pcse_records(df_raw, latitude, longitude))
+
+    new_days = {r["DAY"] for r in new_records}
+    records = sorted(
+        [r for r in records if r["DAY"] not in new_days] + new_records, key=lambda r: r["DAY"]
+    )
 
     os.makedirs(cache_dir, exist_ok=True)
     pd.DataFrame.from_records(records).to_csv(path, index=False)
