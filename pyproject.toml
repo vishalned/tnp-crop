@@ -24,6 +24,7 @@ data = [
     "numpy>=1.26",
     "pyyaml>=6.0",
     "earthengine-api>=1.0",
+    "zarr>=3.1; python_version >= '3.11'",
 ]
 dev = [
   "pytest",

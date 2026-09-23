@@ -25,8 +25,11 @@ uv run python src/train.py experiment=tnp_synthetic
 uv run python -m src.data_pipeline.soil.generate_soilgrids_soil_file -lon 6.656 -lat 52.966
 uv run python -m src.data_pipeline.weather.generate_weather_file -lon 6.656 -lat 52.966 --start-date 2000-01-01 --end-date 2023-12-31
 uv run python -m src.data_pipeline.wofost.run_wofost_simulation -lon 6.656 -lat 52.966 --crop wheat --year 2020
-uv run python -m src.data_pipeline.wofost.generate_wofost_dataset --locations-csv path/to/locations.csv --crop wheat --num-years 5 --start-year 2010 --end-year 2024
+uv run python -m src.data_pipeline.locations.extract_locations_from_zarr --zarr-path path/to/raw_dataset.zarr --crop wheat --countries nw_europe -n 100 --seed 42
+uv run python -m src.data_pipeline.wofost.generate_wofost_dataset --locations-csv data/raw/locations/locations_wheat.csv --num-years 5 --start-year 2010 --end-year 2024
 ```
+`extract_locations_from_zarr` samples locations from the CropFM dataset Zarr. `--crop wheat|maize` keeps only points where WorldCereal maps that crop (wheat = winter cereals) and writes a `crop` column, which the batch runner uses per row; it also adds that crop's WorldCereal start/end of season (`sos_doy`/`eos_doy`). `--countries` takes country names or `nw_europe`; `-n` is the total (or per country with `--per-country`; `-n 0` keeps all).
+
 The batch runner simulates `--num-years` **consecutive** years per location, starting at a random year chosen so the window fits inside `[--start-year, --end-year]` (reproducible with `--seed`); `--all-years` runs every year in that range instead. Each location's weather for the whole window is downloaded from GEE in one go before its episodes run. Locations run in parallel over `--workers` processes (default `min(8, cpu count)`; `--workers 1` = sequential); rows sharing the same coordinates always go to the same worker so they never write the same soil/weather cache file at once, and the same `--seed` gives the same episodes whatever the worker count. On an HPC cluster, run it inside a job with as many CPUs as `--workers` rather than on a login node.
 
 Turn a finished batch run into training tables (one row per simulated growing season, labelled with the harvest year; time series kept at daily resolution, unaggregated — aggregate in the dataloader):
