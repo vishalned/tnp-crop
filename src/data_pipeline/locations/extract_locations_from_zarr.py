@@ -174,7 +174,7 @@ def main():
         sys.exit(1)
 
     parser = argparse.ArgumentParser(description="Sample simulation locations from the CropFM dataset Zarr.")
-    parser.add_argument("--zarr-path", dest="zarr_path", type=str, required=True, help="Path to the CropFM dataset .zarr.")
+    parser.add_argument("--zarr-path", dest="zarr_path", type=str, default="/projects/prjs1788/CropFM/europe_data_1200_merged_cleaned2_rechunked.zarr", help="Path to the CropFM dataset .zarr.")
     parser.add_argument("--crop", dest="crop", type=str, default=None, choices=sorted(worldcereal_crop_codes()), help="Only points WorldCereal maps as this crop (wheat = winter cereals).")
     parser.add_argument("--countries", dest="countries", nargs="+", default=None, help=f"Country names or groups ({', '.join(default_country_groups())}). Default: all.")
     parser.add_argument("-n", "--num-locations", dest="num_locations", type=int, default=100, help="Number of locations to sample (per country with --per-country); 0 keeps all. Default 100.")
