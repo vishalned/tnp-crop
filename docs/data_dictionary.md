@@ -133,7 +133,7 @@ Produced by `generate_gee_soil_file.py` from the GEE SoilGrids pull, via
 See `default_soilgrid_d_factors()` for the raw-SoilGrids-integer → these
 units conversion factors.
 
-## Processed training table (`data/processed/wofost_{crop}_{aggregation}.csv`)
+## Processed training table (`data/processed/wofost_{crop}_daily.csv`)
 
 Built by `src/data_pipeline/wofost/process_wofost_dataset.py` from a batch
 run's `dataset_manifest.csv` (successful episodes only), the episodes'
@@ -152,15 +152,16 @@ harvested Jul 2014 has `year = 2014`, `sowing_year = 2013`.
 | `sos_doy` | Nominal start-of-season day of year for the crop (`default_sowing_doy()`, stand-in for the WorldCereal SOS) |
 | `sowing_doy`, `sowing_date` | Actual (jittered) sowing day |
 | `maturity_date`, `season_length_days`, `reached_maturity` | When DVS reached 2 (metadata — not known at forecast time, don't use as an input feature) |
-| `window_start` | Date bucket 0 starts on |
+| `window_start` | Date of day 0 of the time series |
 | `yield_t_per_ha` / `yield_kg_per_ha` | **Target**: `TWSO` (storage-organ dry matter) at maturity |
-| `{feature}_{prefix}{k:02d}` | Time series, bucket `k` counted from `window_start`; prefix `w` weekly, `dk` dekadal, `bw` biweekly, `m` monthly (30 days), `d` daily, `b` custom |
+| `{feature}_d{k:03d}` | Daily time series (unaggregated), day `k` counted from `window_start` |
 
-Bucket 0 starts at the crop's nominal season start that year (`--align
-season_start`, default) or at the actual sowing date (`--align sowing`).
-Every row of a crop has `ceil(max_duration / bucket_days)` buckets (wheat:
-53 weekly), independent of when the crop matured. Each value is the
-**mean over the bucket's days**:
+Day 0 is `--pre-season-days` (default 30) before the anchor: the crop's
+nominal season start that year (`--align season_start`, default) or the
+actual sowing date (`--align sowing`). The anchor is at index
+`anchor_day_index` in the columns JSON. Every row of a crop has
+`pre_season_days + max_duration` days (wheat: 30 + 365 = 395), independent
+of when the crop matured.
 
 | Feature | Source | Unit |
 |---|---|---|
