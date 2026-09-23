@@ -6,10 +6,12 @@ wofost_synthetic_pretraining_plan, run at whatever scale you point it at.
 
 import argparse
 import datetime
+import multiprocessing
 import os
 import random
 import sys
 import traceback
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Optional
 
 import pandas as pd
@@ -74,77 +76,52 @@ def _prefetch_weather_for_window(
         print(f"  Weather prefetch failed ({type(e).__name__}: {e}); episodes will retry individually.")
 
 
-def generate_wofost_dataset(
-    locations: list,
-    crop: Optional[str] = None,
-    num_years: Optional[int] = 5,
-    start_year: int = 2010,
-    end_year: int = 2024,
-    sowing_jitter_days: int = 10,
-    seed: Optional[int] = None,
-    output_dir: Optional[str] = None,
-) -> dict:
-    """Run WOFOST episodes for a batch of locations, `num_years` consecutive
-    years per location (a window with a random start, fitting inside
-    `[start_year, end_year]`; `num_years=None` runs every year in the range),
-    and write one manifest CSV (`dataset_manifest.csv`, one row per attempted
-    episode) alongside the per-episode files `generate_wofost_episode`
-    already writes.
+def _empty_row(job: dict, year: int, episode_seed: int) -> dict:
+    return {
+        "location_index": job["location_index"],
+        "longitude": job["longitude"],
+        "latitude": job["latitude"],
+        "crop": job["crop"],
+        "year": year,
+        "seed": episode_seed,
+        "status": "failed",
+        "error": None,
+        "sowing_date": None,
+        "yield_kg_per_ha": None,
+        "final_dvs": None,
+        "awc": None,
+        "bulk_density": None,
+        "daily_path": None,
+        "summary_path": None,
+    }
 
-    :param locations: list of dicts, each with `longitude`/`latitude` and
-        optionally `crop` (overrides `crop` for that location).
-    :param crop: default crop for locations that don't specify their own.
 
-    A single location/year failure (e.g. a GEE quota error) doesn't stop the
-    batch -- it's recorded in the manifest with `status="failed"` and the
-    run moves on, since one bad episode shouldn't lose a whole batch.
+def _run_location_group(jobs: list, sowing_jitter_days: int, save_dir: str, num_locations: int) -> list:
+    """Run every episode for a group of location jobs that share the same
+    coordinates (e.g. one point listed once for wheat and once for maize),
+    one after the other, and return their manifest rows.
+
+    Grouping by coordinates is what makes the parallel run safe: the soil
+    and weather caches are one file per (longitude, latitude), so two
+    workers never write the same cache file at the same time.
+
+    Module-level (not a closure) so it can be sent to worker processes.
     """
-    save_dir = output_dir if output_dir is not None else DEFAULT_WOFOST_SAVE_DIR
-    os.makedirs(save_dir, exist_ok=True)
-    manifest_path = os.path.join(save_dir, "dataset_manifest.csv")
+    rows = []
+    for job in jobs:
+        longitude, latitude, crop, years = job["longitude"], job["latitude"], job["crop"], job["years"]
+        tag = f"[{job['location_index'] + 1}/{num_locations}] {crop} at ({longitude}, {latitude})"
+        print(f"{tag}, years {years[0]}-{years[-1]}", flush=True)
+        _prefetch_weather_for_window(longitude, latitude, crop, years, sowing_jitter_days)
 
-    rng = random.Random(seed)
-    manifest_rows = []
-
-    for i, location in enumerate(locations):
-        longitude = location["longitude"]
-        latitude = location["latitude"]
-        raw_crop = location.get("crop")
-        location_crop = raw_crop if pd.notna(raw_crop) else crop
-        if not location_crop:
-            raise ValueError(
-                f"No crop given for location #{i} ({longitude}, {latitude}) and no default --crop set."
-            )
-
-        years = _sample_year_window(rng, start_year, end_year, num_years)
-        print(f"[{i + 1}/{len(locations)}] {location_crop} at ({longitude}, {latitude}), years {years[0]}-{years[-1]}")
-        _prefetch_weather_for_window(longitude, latitude, location_crop, years, sowing_jitter_days)
-
-        for year in years:
-            episode_seed = rng.randint(0, 2**31 - 1)
-            print(f"[{i + 1}/{len(locations)}] {location_crop} at ({longitude}, {latitude}), year {year}")
-
-            row = {
-                "longitude": longitude,
-                "latitude": latitude,
-                "crop": location_crop,
-                "year": year,
-                "seed": episode_seed,
-                "status": "failed",
-                "error": None,
-                "sowing_date": None,
-                "yield_kg_per_ha": None,
-                "final_dvs": None,
-                "awc": None,
-                "bulk_density": None,
-                "daily_path": None,
-                "summary_path": None,
-            }
+        for year, episode_seed in zip(years, job["episode_seeds"]):
+            print(f"{tag}, year {year}", flush=True)
+            row = _empty_row(job, year, episode_seed)
             try:
                 result = generate_wofost_episode(
                     longitude=longitude,
                     latitude=latitude,
-                    crop=location_crop,
+                    crop=crop,
                     year=year,
                     sowing_jitter_days=sowing_jitter_days,
                     seed=episode_seed,
@@ -163,13 +140,119 @@ def generate_wofost_dataset(
                 )
             except Exception as e:
                 row["error"] = f"{type(e).__name__}: {e}"
-                print(f"  FAILED: {row['error']}")
+                print(f"{tag}, year {year} FAILED: {row['error']}", flush=True)
                 traceback.print_exc()
+            rows.append(row)
+    return rows
 
-            manifest_rows.append(row)
-            # Write after every episode so a crash partway through a large
-            # batch doesn't lose the progress already made.
-            pd.DataFrame(manifest_rows).to_csv(manifest_path, index=False)
+
+def _default_num_workers() -> int:
+    return min(8, os.cpu_count() or 1)
+
+
+def generate_wofost_dataset(
+    locations: list,
+    crop: Optional[str] = None,
+    num_years: Optional[int] = 5,
+    start_year: int = 2010,
+    end_year: int = 2024,
+    sowing_jitter_days: int = 10,
+    seed: Optional[int] = None,
+    output_dir: Optional[str] = None,
+    num_workers: Optional[int] = None,
+) -> dict:
+    """Run WOFOST episodes for a batch of locations, `num_years` consecutive
+    years per location (a window with a random start, fitting inside
+    `[start_year, end_year]`; `num_years=None` runs every year in the range),
+    and write one manifest CSV (`dataset_manifest.csv`, one row per attempted
+    episode) alongside the per-episode files `generate_wofost_episode`
+    already writes.
+
+    :param locations: list of dicts, each with `longitude`/`latitude` and
+        optionally `crop` (overrides `crop` for that location).
+    :param crop: default crop for locations that don't specify their own.
+    :param num_workers: number of worker processes; locations are spread
+        over them (all rows with the same coordinates go to the same
+        worker). 1 runs everything in this process, one location after the
+        other. Defaults to `min(8, cpu count)`.
+
+    Year windows and per-episode seeds are all drawn up front in this
+    process, in location order, so a given `seed` gives the same episodes
+    whatever `num_workers` is.
+
+    A single location/year failure (e.g. a GEE quota error) doesn't stop the
+    batch -- it's recorded in the manifest with `status="failed"` and the
+    run moves on, since one bad episode shouldn't lose a whole batch.
+    """
+    save_dir = output_dir if output_dir is not None else DEFAULT_WOFOST_SAVE_DIR
+    os.makedirs(save_dir, exist_ok=True)
+    manifest_path = os.path.join(save_dir, "dataset_manifest.csv")
+    num_workers = num_workers if num_workers is not None else _default_num_workers()
+
+    rng = random.Random(seed)
+    groups = {}
+    for i, location in enumerate(locations):
+        longitude = location["longitude"]
+        latitude = location["latitude"]
+        raw_crop = location.get("crop")
+        location_crop = raw_crop if pd.notna(raw_crop) else crop
+        if not location_crop:
+            raise ValueError(
+                f"No crop given for location #{i} ({longitude}, {latitude}) and no default --crop set."
+            )
+        years = _sample_year_window(rng, start_year, end_year, num_years)
+        episode_seeds = [rng.randint(0, 2**31 - 1) for _ in years]
+        job = {
+            "location_index": i,
+            "longitude": longitude,
+            "latitude": latitude,
+            "crop": location_crop,
+            "years": years,
+            "episode_seeds": episode_seeds,
+        }
+        groups.setdefault((longitude, latitude), []).append(job)
+
+    manifest_rows = []
+
+    def record(rows: list) -> None:
+        manifest_rows.extend(rows)
+        # Written after every finished location so a crash partway through
+        # a large batch doesn't lose the progress already made.
+        (
+            pd.DataFrame(manifest_rows)
+            .sort_values(["location_index", "year"])
+            .to_csv(manifest_path, index=False)
+        )
+
+    group_list = list(groups.values())
+    if num_workers <= 1:
+        for jobs in group_list:
+            record(_run_location_group(jobs, sowing_jitter_days, save_dir, len(locations)))
+    else:
+        print(f"Running {len(group_list)} locations on {num_workers} worker processes.", flush=True)
+        # spawn (not fork): each worker starts clean and initialises its own
+        # Earth Engine client, rather than inheriting a forked copy.
+        context = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=num_workers, mp_context=context) as executor:
+            futures = {
+                executor.submit(_run_location_group, jobs, sowing_jitter_days, save_dir, len(locations)): jobs
+                for jobs in group_list
+            }
+            for future in as_completed(futures):
+                try:
+                    rows = future.result()
+                except Exception as e:
+                    # The worker process itself died (e.g. out of memory);
+                    # mark every episode it was responsible for as failed.
+                    error = f"worker crashed: {type(e).__name__}: {e}"
+                    print(error, flush=True)
+                    rows = []
+                    for job in futures[future]:
+                        for year, episode_seed in zip(job["years"], job["episode_seeds"]):
+                            row = _empty_row(job, year, episode_seed)
+                            row["error"] = error
+                            rows.append(row)
+                record(rows)
 
     num_success = sum(1 for r in manifest_rows if r["status"] == "success")
     print(f"Done: {num_success}/{len(manifest_rows)} episodes succeeded. Manifest written to {manifest_path}.")
@@ -190,7 +273,7 @@ def main():
         print(
             "Usage: python generate_wofost_dataset.py --locations-csv <path> [--crop <wheat|maize>] "
             "[--num-years <n> | --all-years] [--start-year <y>] [--end-year <y>] [--sowing-jitter-days <days>] "
-            "[--seed <int>] [--output-dir <path>]"
+            "[--seed <int>] [--workers <n>] [--output-dir <path>]"
         )
         print(
             "The locations CSV needs 'longitude'/'latitude' columns, and an optional 'crop' "
@@ -209,6 +292,7 @@ def main():
     parser.add_argument("--end-year", dest="end_year", type=int, default=2024, help="Last year a window may include (season year = sowing year).")
     parser.add_argument("--sowing-jitter-days", dest="sowing_jitter_days", type=int, default=10)
     parser.add_argument("--seed", dest="seed", type=int, default=None)
+    parser.add_argument("--workers", dest="num_workers", type=int, default=None, help="Worker processes running locations in parallel (default: min(8, cpu count); 1 = sequential).")
     parser.add_argument("-o", "--output-dir", dest="output_dir", type=str, default=DEFAULT_WOFOST_SAVE_DIR)
 
     args = parser.parse_args()
@@ -224,6 +308,7 @@ def main():
         sowing_jitter_days=args.sowing_jitter_days,
         seed=args.seed,
         output_dir=args.output_dir,
+        num_workers=args.num_workers,
     )
 
 
