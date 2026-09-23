@@ -141,13 +141,16 @@ def process_episode(
         # after maturity (harvest) the field is bare.
         wofost_window["fpar"] = wofost_window["fpar"].fillna(0.0)
 
+    # Manifests from before per-year jitters had one episode per year.
+    jitter_index = int(row["jitter_index"]) if pd.notna(row.get("jitter_index")) else 0
     out = {
-        "sample_id": f"{row['longitude']}_{row['latitude']}_{crop}_{maturity_date.year}",
+        "sample_id": f"{row['longitude']}_{row['latitude']}_{crop}_{maturity_date.year}_j{jitter_index}",
         "location_index": int(row["location_index"]),
         "location_id": f"{row['longitude']}_{row['latitude']}",
         "crop": crop,
         "year": maturity_date.year,
         "sowing_year": sowing_year,
+        "jitter_index": jitter_index,
         "latitude": row["latitude"],
         "longitude": row["longitude"],
         "awc": row["awc"],
@@ -155,6 +158,7 @@ def process_episode(
         "sos_doy": sos_doy,
         "sowing_doy": sowing_date.timetuple().tm_yday,
         "sowing_date": sowing_date.isoformat(),
+        "sowing_offset_days": (sowing_date - season_start).days,
         "maturity_date": maturity_date.isoformat(),
         "season_length_days": (maturity_date - sowing_date).days,
         "reached_maturity": reached_maturity,
@@ -223,7 +227,7 @@ def process_wofost_dataset(
         # Built per crop (not as one frame split afterwards) so each crop keeps
         # exactly its own day columns, even days that are all NaN.
         df = pd.DataFrame([r for r in rows if r["crop"] == crop])
-        df = df.sort_values(["location_index", "year"]).reset_index(drop=True)
+        df = df.sort_values(["location_index", "year", "jitter_index"]).reset_index(drop=True)
         stem = os.path.join(output_dir, f"wofost_{crop}_daily")
         df.to_csv(f"{stem}.csv", index=False)
 
@@ -239,8 +243,8 @@ def process_wofost_dataset(
             "align": align,
             "pre_season_days": pre_season_days,
             "anchor_day_index": pre_season_days,
-            "ids": ["sample_id", "location_index", "location_id", "crop", "year", "sowing_year"],
-            "metadata": ["sowing_date", "maturity_date", "season_length_days", "reached_maturity", "window_start"],
+            "ids": ["sample_id", "location_index", "location_id", "crop", "year", "sowing_year", "jitter_index"],
+            "metadata": ["sowing_date", "sowing_offset_days", "maturity_date", "season_length_days", "reached_maturity", "window_start"],
             "static_features": default_static_features(),
             "timeseries_features": timeseries,
             "targets": ["yield_t_per_ha", "yield_kg_per_ha"],

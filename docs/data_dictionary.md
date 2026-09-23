@@ -14,7 +14,7 @@ and the matching `..._summary.json`).
 | `data/raw/weather/weather_{lon}_{lat}_gee_era5_land.csv` | Daily ERA5-Land weather for a location (Earth Engine `ECMWF/ERA5_LAND/DAILY_AGGR`), already in PCSE units incl. `E0`/`ES0`/`ET0`, for whichever calendar years have been needed so far (not necessarily contiguous). **Active source** (`gee_weather.get_gee_weather_provider_for_location`). | **Cached**, one file per location: a run fetches only the calendar years its season spans that aren't in the file yet (e.g. 2005 + 2006 for a season sown Oct 2005) and merges them in. Unpublished recent days (ERA5-Land lags a few months) are re-checked at most every 7 days. |
 | `~/.pcse/meteo_cache/OpenMeteoWeatherDataProvider_LAT..._LON..._{model}.cache` | Only if you use the Open-Meteo path (`openmeteo_weather.request_openmeteo_weather`, no longer called by the pipeline). PCSE's own cache: data from the requested `start_date` to the present. | Managed by PCSE: keyed on the location truncated to 0.1° + model, reused for 90 days **regardless of `start_date`** — so request the earliest start first for a location. |
 | `data/raw/wofost/{crop}/wofost_{crop}_{lon}_{lat}_{year}_{sowing_date}.csv` + `..._summary.json` | One simulation episode's daily trajectory + summary | Always freshly written, one pair per episode. |
-| `data/raw/wofost/dataset_manifest.csv` | One row per episode attempted by `generate_wofost_dataset.py`, `status`/`error` plus the summary fields and file paths | Written incrementally by the batch runner; not itself a cache. |
+| `data/raw/wofost/dataset_manifest.csv` | One row per episode attempted by `generate_wofost_dataset.py` (location × sowing year × `jitter_index`, with its `sowing_offset_days`), `status`/`error` plus the summary fields and file paths | Written incrementally by the batch runner; not itself a cache. |
 
 Model: [`Wofost81_WLP_MLWB`](https://pcse.readthedocs.io) — water-limited
 production, multi-layer waterbalance, no nitrogen/SNOMIN (see
@@ -147,10 +147,10 @@ harvested Jul 2014 has `year = 2014`, `sowing_year = 2013`.
 
 | Column(s) | Meaning |
 |---|---|
-| `sample_id`, `location_index`, `location_id`, `crop`, `year`, `sowing_year` | Identifiers (`location_id` = `"{lon}_{lat}"`) |
+| `sample_id`, `location_index`, `location_id`, `crop`, `year`, `sowing_year`, `jitter_index` | Identifiers (`location_id` = `"{lon}_{lat}"`; `sample_id` = `"{lon}_{lat}_{crop}_{year}_j{jitter_index}"`) — each location/year has several sowing-date jitters |
 | `latitude`, `longitude`, `awc`, `bulk_density` | Static features (soil ones from the topsoil, as in the summary JSON) |
 | `sos_doy` | Nominal start-of-season day of year for the crop (`default_sowing_doy()`, stand-in for the WorldCereal SOS) |
-| `sowing_doy`, `sowing_date` | Actual (jittered) sowing day |
+| `sowing_doy`, `sowing_date`, `sowing_offset_days` | Actual (jittered) sowing day, and its offset from the nominal season start |
 | `maturity_date`, `season_length_days`, `reached_maturity` | When DVS reached 2 (metadata — not known at forecast time, don't use as an input feature) |
 | `window_start` | Date of day 0 of the time series |
 | `yield_t_per_ha` / `yield_kg_per_ha` | **Target**: `TWSO` (storage-organ dry matter) at maturity |

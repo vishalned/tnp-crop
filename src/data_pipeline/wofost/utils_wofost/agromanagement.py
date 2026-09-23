@@ -19,7 +19,13 @@ def jitter_sowing_date(
     """
     rng = rng if rng is not None else random
     offset = rng.randint(-jitter_days, jitter_days) if jitter_days > 0 else 0
-    return datetime.date(year, 1, 1) + datetime.timedelta(days=anchor_doy - 1 + offset)
+    return sowing_date_from_offset(year, anchor_doy, offset)
+
+
+def sowing_date_from_offset(year: int, anchor_doy: int, offset_days: int) -> datetime.date:
+    """Sowing date `offset_days` after (negative: before) the start-of-season
+    anchor day-of-year in `year`."""
+    return datetime.date(year, 1, 1) + datetime.timedelta(days=anchor_doy - 1 + offset_days)
 
 
 def build_agromanagement(

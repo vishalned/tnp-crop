@@ -11,7 +11,11 @@ import rootutils
 
 from src.data_pipeline.soil.generate_gee_soil_file import generate_soil_data_for_wofost
 from src.data_pipeline.weather.utils_weather.gee_weather import get_gee_weather_provider_for_location
-from src.data_pipeline.wofost.utils_wofost.agromanagement import build_agromanagement, jitter_sowing_date
+from src.data_pipeline.wofost.utils_wofost.agromanagement import (
+    build_agromanagement,
+    jitter_sowing_date,
+    sowing_date_from_offset,
+)
 from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import (
     default_crop_variety,
     default_max_duration_days,
@@ -40,6 +44,7 @@ def generate_wofost_episode(
     seed: Optional[int] = None,
     output_dir: Optional[str] = None,
     force_refresh_soil: bool = False,
+    sowing_offset_days: Optional[int] = None,
 ) -> dict:
     """Run one end-to-end WOFOST/PCSE simulation episode for a location/year
     and cache the daily driver+output trajectory (with CYBench-aligned
@@ -56,6 +61,10 @@ def generate_wofost_episode(
         `default_wofost_variables.default_sowing_doy`) -- TODO: replace with
         the real per-location WorldCereal start-of-season (SOS) once that
         extraction pipeline exists.
+    :param sowing_offset_days: sow exactly this many days after (negative:
+        before) the anchor instead of a random jitter; `sowing_jitter_days`
+        and `seed` are then unused. The batch runner uses this to run
+        several distinct sowing dates per location/year.
     :param force_refresh_soil: re-query Earth Engine for soil even if a soil
         file already exists for this (longitude, latitude). By default an
         existing soil file is reused as-is -- soil only depends on location,
@@ -69,8 +78,10 @@ def generate_wofost_episode(
     anchor_doy = sowing_doy if sowing_doy is not None else default_sowing_doy()[crop]
     max_duration = default_max_duration_days()[crop]
 
-    rng = random.Random(seed)
-    sowing_date = jitter_sowing_date(year, anchor_doy, sowing_jitter_days, rng=rng)
+    if sowing_offset_days is not None:
+        sowing_date = sowing_date_from_offset(year, anchor_doy, sowing_offset_days)
+    else:
+        sowing_date = jitter_sowing_date(year, anchor_doy, sowing_jitter_days, rng=random.Random(seed))
 
     model_class = getattr(pcse_models, wofost_model_name())
 
@@ -122,6 +133,7 @@ def generate_wofost_episode(
         "variety_name": variety_name,
         "year": year,
         "sowing_date": sowing_date.isoformat(),
+        "sowing_offset_days": (sowing_date - sowing_date_from_offset(year, anchor_doy, 0)).days,
         # yield: total weight storage organs (kg/ha) at maturity
         "yield_kg_per_ha": summary.get("TWSO"),
         "final_dvs": summary.get("DVS"),
@@ -146,7 +158,7 @@ def main():
         print(
             "Usage: python run_wofost_simulation.py --lon <longitude> --lat <latitude> "
             "--crop <wheat|maize> --year <year> [--sowing-doy <doy>] "
-            "[--sowing-jitter-days <days>] "
+            "[--sowing-jitter-days <days> | --sowing-offset-days <days>] "
             "[--seed <int>] [--output-dir <path>] [--force-refresh-soil]"
         )
         print("Example: python run_wofost_simulation.py -lon 6.656 -lat 52.966 --crop wheat --year 2020")
@@ -160,6 +172,7 @@ def main():
     parser.add_argument("--variety-name", dest="variety_name", type=str, default=None)
     parser.add_argument("--sowing-doy", dest="sowing_doy", type=int, default=None)
     parser.add_argument("--sowing-jitter-days", dest="sowing_jitter_days", type=int, default=10)
+    parser.add_argument("--sowing-offset-days", dest="sowing_offset_days", type=int, default=None, help="Sow exactly this many days after the anchor (overrides the random jitter).")
     parser.add_argument("--seed", dest="seed", type=int, default=None)
     parser.add_argument("-o", "--output-dir", dest="output_dir", type=str, default=DEFAULT_WOFOST_SAVE_DIR)
     parser.add_argument("--force-refresh-soil", dest="force_refresh_soil", action="store_true", help="Re-query Earth Engine for soil even if a soil file already exists for this location.")
@@ -177,6 +190,7 @@ def main():
         seed=args.seed,
         output_dir=args.output_dir,
         force_refresh_soil=args.force_refresh_soil,
+        sowing_offset_days=args.sowing_offset_days,
     )
 
 

@@ -1,7 +1,12 @@
-"""Batch runner: generate WOFOST episodes for many locations x years and
-write them all under data/raw/wofost with a single manifest indexing every
-attempted episode -- the "sanity-check-then-scale" step in
-wofost_synthetic_pretraining_plan, run at whatever scale you point it at.
+"""Batch runner: generate WOFOST episodes for many locations x years x
+sowing-date jitters and write them all under data/raw/wofost with a single
+manifest indexing every attempted episode.
+
+Every location gets every year in `[start_year, end_year]` (2005-2020 by
+default) and, per year, `num_jitters` (3) simulations with distinct sowing
+dates within +/- `sowing_jitter_days` of the crop's season start -- so
+`locations x 16 years x 3 jitters` episodes. Sub-sampling years/jitters is
+left to the dataloader.
 """
 
 import argparse
@@ -28,26 +33,17 @@ from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import (
 root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 
-def _sample_year_window(
-    rng: random.Random, start_year: int, end_year: int, num_years: Optional[int]
-) -> list:
-    """`num_years` consecutive years inside `[start_year, end_year]`, starting
-    at a random year (so the whole window fits in the range). `num_years=None`
-    (or >= the range length) returns every year in the range.
-
-    Consecutive rather than scattered years: it matches CYBench's
-    contiguous per-region year series, and neighbouring seasons share
-    weather (a wheat season sown in Oct runs into the next year), so a
-    location's weather comes down in one contiguous block. The random start
-    per location spreads coverage over the whole range across locations.
-    """
-    available = end_year - start_year + 1
-    if available < 1:
-        raise ValueError(f"end_year ({end_year}) must be >= start_year ({start_year}).")
-    if num_years is None or num_years >= available:
-        return list(range(start_year, end_year + 1))
-    first = rng.randint(start_year, end_year - num_years + 1)
-    return list(range(first, first + num_years))
+def _sample_jitter_offsets(rng: random.Random, num_jitters: int, sowing_jitter_days: int) -> list:
+    """`num_jitters` distinct sowing offsets (days) in
+    [-sowing_jitter_days, +sowing_jitter_days], sorted. Distinct so no two
+    jitters of the same location/year are the same simulation."""
+    choices = range(-sowing_jitter_days, sowing_jitter_days + 1)
+    if num_jitters > len(choices):
+        raise ValueError(
+            f"num_jitters ({num_jitters}) can't exceed the {len(choices)} distinct sowing days "
+            f"in +/-{sowing_jitter_days} days."
+        )
+    return sorted(rng.sample(choices, k=num_jitters))
 
 
 def _prefetch_weather_for_window(
@@ -76,14 +72,15 @@ def _prefetch_weather_for_window(
         print(f"  Weather prefetch failed ({type(e).__name__}: {e}); episodes will retry individually.")
 
 
-def _empty_row(job: dict, year: int, episode_seed: int) -> dict:
+def _empty_row(job: dict, year: int, jitter_index: int, sowing_offset_days: int) -> dict:
     return {
         "location_index": job["location_index"],
         "longitude": job["longitude"],
         "latitude": job["latitude"],
         "crop": job["crop"],
         "year": year,
-        "seed": episode_seed,
+        "jitter_index": jitter_index,
+        "sowing_offset_days": sowing_offset_days,
         "status": "failed",
         "error": None,
         "sowing_date": None,
@@ -114,17 +111,16 @@ def _run_location_group(jobs: list, sowing_jitter_days: int, save_dir: str, num_
         print(f"{tag}, years {years[0]}-{years[-1]}", flush=True)
         _prefetch_weather_for_window(longitude, latitude, crop, years, sowing_jitter_days)
 
-        for year, episode_seed in zip(years, job["episode_seeds"]):
-            print(f"{tag}, year {year}", flush=True)
-            row = _empty_row(job, year, episode_seed)
+        for year, jitter_index, offset in _episodes(job):
+            print(f"{tag}, year {year}, jitter {jitter_index} ({offset:+d} days)", flush=True)
+            row = _empty_row(job, year, jitter_index, offset)
             try:
                 result = generate_wofost_episode(
                     longitude=longitude,
                     latitude=latitude,
                     crop=crop,
                     year=year,
-                    sowing_jitter_days=sowing_jitter_days,
-                    seed=episode_seed,
+                    sowing_offset_days=offset,
                     output_dir=save_dir,
                 )
                 summary = result["summary"]
@@ -140,10 +136,17 @@ def _run_location_group(jobs: list, sowing_jitter_days: int, save_dir: str, num_
                 )
             except Exception as e:
                 row["error"] = f"{type(e).__name__}: {e}"
-                print(f"{tag}, year {year} FAILED: {row['error']}", flush=True)
+                print(f"{tag}, year {year}, jitter {jitter_index} FAILED: {row['error']}", flush=True)
                 traceback.print_exc()
             rows.append(row)
     return rows
+
+
+def _episodes(job: dict):
+    """(year, jitter_index, sowing_offset_days) for every episode of a job."""
+    for year, offsets in zip(job["years"], job["sowing_offsets"]):
+        for jitter_index, offset in enumerate(offsets):
+            yield year, jitter_index, offset
 
 
 def _default_num_workers() -> int:
@@ -153,32 +156,34 @@ def _default_num_workers() -> int:
 def generate_wofost_dataset(
     locations: list,
     crop: Optional[str] = None,
-    num_years: Optional[int] = 5,
-    start_year: int = 2010,
-    end_year: int = 2024,
+    start_year: int = 2005,
+    end_year: int = 2020,
+    num_jitters: int = 3,
     sowing_jitter_days: int = 10,
     seed: Optional[int] = None,
     output_dir: Optional[str] = None,
     num_workers: Optional[int] = None,
 ) -> dict:
-    """Run WOFOST episodes for a batch of locations, `num_years` consecutive
-    years per location (a window with a random start, fitting inside
-    `[start_year, end_year]`; `num_years=None` runs every year in the range),
-    and write one manifest CSV (`dataset_manifest.csv`, one row per attempted
-    episode) alongside the per-episode files `generate_wofost_episode`
-    already writes.
+    """Run WOFOST episodes for a batch of locations -- every year in
+    `[start_year, end_year]` (sowing year), `num_jitters` sowing dates per
+    year -- and write one manifest CSV (`dataset_manifest.csv`, one row per
+    attempted episode, with `jitter_index` and `sowing_offset_days`)
+    alongside the per-episode files `generate_wofost_episode` already writes.
 
     :param locations: list of dicts, each with `longitude`/`latitude` and
         optionally `crop` (overrides `crop` for that location).
     :param crop: default crop for locations that don't specify their own.
+    :param num_jitters: sowing dates simulated per location and year: distinct
+        random offsets within +/- `sowing_jitter_days` of the crop's season
+        start (`jitter_index` 0..num_jitters-1, ordered by offset).
     :param num_workers: number of worker processes; locations are spread
         over them (all rows with the same coordinates go to the same
         worker). 1 runs everything in this process, one location after the
         other. Defaults to `min(8, cpu count)`.
 
-    Year windows and per-episode seeds are all drawn up front in this
-    process, in location order, so a given `seed` gives the same episodes
-    whatever `num_workers` is.
+    Sowing offsets are all drawn up front in this process, in location
+    order, so a given `seed` gives the same episodes whatever `num_workers`
+    is.
 
     A single location/year failure (e.g. a GEE quota error) doesn't stop the
     batch -- it's recorded in the manifest with `status="failed"` and the
@@ -188,6 +193,9 @@ def generate_wofost_dataset(
     os.makedirs(save_dir, exist_ok=True)
     manifest_path = os.path.join(save_dir, "dataset_manifest.csv")
     num_workers = num_workers if num_workers is not None else _default_num_workers()
+    if end_year < start_year:
+        raise ValueError(f"end_year ({end_year}) must be >= start_year ({start_year}).")
+    years = list(range(start_year, end_year + 1))
 
     rng = random.Random(seed)
     groups = {}
@@ -200,15 +208,13 @@ def generate_wofost_dataset(
             raise ValueError(
                 f"No crop given for location #{i} ({longitude}, {latitude}) and no default --crop set."
             )
-        years = _sample_year_window(rng, start_year, end_year, num_years)
-        episode_seeds = [rng.randint(0, 2**31 - 1) for _ in years]
         job = {
             "location_index": i,
             "longitude": longitude,
             "latitude": latitude,
             "crop": location_crop,
             "years": years,
-            "episode_seeds": episode_seeds,
+            "sowing_offsets": [_sample_jitter_offsets(rng, num_jitters, sowing_jitter_days) for _ in years],
         }
         groups.setdefault((longitude, latitude), []).append(job)
 
@@ -220,7 +226,7 @@ def generate_wofost_dataset(
         # a large batch doesn't lose the progress already made.
         (
             pd.DataFrame(manifest_rows)
-            .sort_values(["location_index", "year"])
+            .sort_values(["location_index", "year", "jitter_index"])
             .to_csv(manifest_path, index=False)
         )
 
@@ -248,8 +254,8 @@ def generate_wofost_dataset(
                     print(error, flush=True)
                     rows = []
                     for job in futures[future]:
-                        for year, episode_seed in zip(job["years"], job["episode_seeds"]):
-                            row = _empty_row(job, year, episode_seed)
+                        for year, jitter_index, offset in _episodes(job):
+                            row = _empty_row(job, year, jitter_index, offset)
                             row["error"] = error
                             rows.append(row)
                 record(rows)
@@ -272,7 +278,7 @@ def main():
         print("No arguments provided!")
         print(
             "Usage: python generate_wofost_dataset.py --locations-csv <path> [--crop <wheat|maize>] "
-            "[--num-years <n> | --all-years] [--start-year <y>] [--end-year <y>] [--sowing-jitter-days <days>] "
+            "[--start-year <y>] [--end-year <y>] [--num-jitters <n>] [--sowing-jitter-days <days>] "
             "[--seed <int>] [--workers <n>] [--output-dir <path>]"
         )
         print(
@@ -286,11 +292,10 @@ def main():
     )
     parser.add_argument("--locations-csv", dest="locations_csv", type=str, required=True, help="CSV with 'longitude'/'latitude' columns (and optional 'crop' column).")
     parser.add_argument("--crop", dest="crop", type=str, default=None, choices=["wheat", "maize"], help="Default crop for locations that don't specify their own.")
-    parser.add_argument("--num-years", dest="num_years", type=int, default=5, help="Number of consecutive years per location (window with a random start inside [start-year, end-year]).")
-    parser.add_argument("--all-years", dest="all_years", action="store_true", help="Run every year in [start-year, end-year] for each location (overrides --num-years).")
-    parser.add_argument("--start-year", dest="start_year", type=int, default=2010, help="First year a window may include.")
-    parser.add_argument("--end-year", dest="end_year", type=int, default=2024, help="Last year a window may include (season year = sowing year).")
-    parser.add_argument("--sowing-jitter-days", dest="sowing_jitter_days", type=int, default=10)
+    parser.add_argument("--start-year", dest="start_year", type=int, default=2005, help="First sowing year (default 2005).")
+    parser.add_argument("--end-year", dest="end_year", type=int, default=2020, help="Last sowing year (default 2020).")
+    parser.add_argument("--num-jitters", dest="num_jitters", type=int, default=3, help="Distinct sowing dates simulated per location and year (default 3).")
+    parser.add_argument("--sowing-jitter-days", dest="sowing_jitter_days", type=int, default=10, help="Sowing dates are drawn within +/- this many days of the season start (default 10).")
     parser.add_argument("--seed", dest="seed", type=int, default=None)
     parser.add_argument("--workers", dest="num_workers", type=int, default=None, help="Worker processes running locations in parallel (default: min(8, cpu count); 1 = sequential).")
     parser.add_argument("-o", "--output-dir", dest="output_dir", type=str, default=DEFAULT_WOFOST_SAVE_DIR)
@@ -302,9 +307,9 @@ def main():
     generate_wofost_dataset(
         locations=locations,
         crop=args.crop,
-        num_years=None if args.all_years else args.num_years,
         start_year=args.start_year,
         end_year=args.end_year,
+        num_jitters=args.num_jitters,
         sowing_jitter_days=args.sowing_jitter_days,
         seed=args.seed,
         output_dir=args.output_dir,
