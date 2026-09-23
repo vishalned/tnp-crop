@@ -4,6 +4,7 @@ import torch
 from lightning import LightningModule
 from torchmetrics import MeanMetric, MinMetric
 
+from src.data.components.crop_vocab import MODALITIES
 from src.models.components.tnpd import Batch
 
 
@@ -15,6 +16,11 @@ class TNPLitModule(LightningModule):
     Gaussian negative log-likelihood -- see `src.models.components.tnpd.TNPD`.
     Yield and phenology targets share the same net; they are only
     distinguished by modality id, never by a separate head.
+
+    Besides the loss, every step logs the NLL per target modality (e.g.
+    `train/nll_yield`) and, for padded crop-episode batches, the token
+    counts (`tokens/context_max`, `tokens/target_max`, `tokens/total_max`),
+    so a growing episode size shows up before it becomes an OOM.
     """
 
     def __init__(
@@ -44,27 +50,46 @@ class TNPLitModule(LightningModule):
     def _to_batch(batch: Dict[str, torch.Tensor]) -> Batch:
         # DataLoaders hand us plain tensor dicts (device transfer, collation and
         # pin_memory all have first-class support for those); build the typed
-        # `Batch` the net expects right before the forward pass.
-        return Batch(**batch)
+        # `Batch` the net expects right before the forward pass. Extra keys
+        # (token counts, episode info) are ignored.
+        return Batch.from_dict(batch)
 
     def on_train_start(self) -> None:
         self.val_loss.reset()
         self.val_loss_best.reset()
 
-    def model_step(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
-        outs = self.forward(self._to_batch(batch))
+    def model_step(self, batch: Dict[str, torch.Tensor], stage: str = "train") -> torch.Tensor:
+        typed = self._to_batch(batch)
+        outs = self.forward(typed)
+        self._log_details(batch, typed, outs, stage)
         return outs["loss"]
 
+    def _log_details(self, batch: Dict[str, Any], typed: Batch, outs: Dict[str, Any], stage: str) -> None:
+        bs = typed.xt.shape[0]
+        if "num_ctx" in batch:
+            num_ctx, num_tar = batch["num_ctx"].float(), batch["num_tar"].float()
+            self.log(f"tokens/{stage}_context_max", num_ctx.max(), batch_size=bs)
+            self.log(f"tokens/{stage}_target_max", num_tar.max(), batch_size=bs)
+            self.log(f"tokens/{stage}_total_max", (num_ctx + num_tar).max(), batch_size=bs, prog_bar=stage == "train")
+        ll = outs.get("tar_ll_tokens")
+        if ll is None:
+            return
+        valid = torch.ones_like(ll, dtype=torch.bool) if typed.mask_t is None else typed.mask_t
+        for modality_id in torch.unique(typed.mt[valid]).tolist():
+            sel = valid & (typed.mt == modality_id)
+            name = MODALITIES[modality_id] if modality_id < len(MODALITIES) else str(modality_id)
+            self.log(f"{stage}/nll_{name}", -ll[sel].mean(), on_step=False, on_epoch=True, batch_size=bs)
+
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
-        loss = self.model_step(batch)
+        loss = self.model_step(batch, "train")
         self.train_loss(loss)
-        self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True, batch_size=batch["xt"].shape[0])
         return loss
 
     def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
-        loss = self.model_step(batch)
+        loss = self.model_step(batch, "val")
         self.val_loss(loss)
-        self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True, batch_size=batch["xt"].shape[0])
 
     def on_validation_epoch_end(self) -> None:
         loss = self.val_loss.compute()
@@ -72,9 +97,9 @@ class TNPLitModule(LightningModule):
         self.log("val/loss_best", self.val_loss_best.compute(), sync_dist=True, prog_bar=True)
 
     def test_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
-        loss = self.model_step(batch)
+        loss = self.model_step(batch, "test")
         self.test_loss(loss)
-        self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True, batch_size=batch["xt"].shape[0])
 
     def setup(self, stage: str) -> None:
         if self.hparams.compile and stage == "fit":

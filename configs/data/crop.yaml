@@ -1,0 +1,36 @@
+_target_: src.data.crop_datamodule.CropEpisodeDataModule
+
+# built by src/data_pipeline/wofost/build_training_store.py
+store_dir: ${paths.data_dir}/processed/tnp_store_wheat
+
+# year split (season = sowing year), fixed for the whole pipeline
+train_years: [2005, 2016]  # train pool: all training context + target years
+val_years: [2017, 2018]  # walk-forward monitoring / early stopping during training
+test_years: [2019, 2020]  # walk-forward evaluation after training only
+
+# episode construction
+countries: [France, Germany, Belgium, United Kingdom, Denmark, Netherlands]  # sampled uniformly
+min_points: 3
+max_points: 10
+min_context_years: 5
+max_context_years: null  # null = every year available before T (see token budget in the README)
+profiles: [weekly, dekadal, irregular]
+static_variables: [clay, nitrogen, ph, soc, water_holding_capacity, elevation, slope]
+label_modalities: [yield, phenology_maturity]  # add phenology_flowering for a third target per point
+window_days: 322  # weather per season: from (season start - pre_season_days), ~Oct 1 to mid-Aug for winter wheat
+pre_season_days: 14
+irregular_bucket_days: 7
+irregular_max_gap_days: 10
+require_maturity: true
+
+batch_size: 8  # episodes per batch
+train_episodes_per_epoch: 2000
+val_episodes: 200
+test_episodes: 200
+num_workers: 4
+seed: 0
+
+num_modalities: 17  # len(src.data.components.crop_vocab.MODALITIES), fixed
+
+norm_stats_path: null  # reuse existing stats instead of recomputing them
+norm_stats_out: ${paths.output_dir}/norm_stats.json

@@ -175,3 +175,16 @@ of when the crop matured.
 
 Note: WOFOST's `TWSO` is dry matter, while reported (e.g. CYBench) yields
 are usually at a standard moisture content, so absolute levels differ.
+
+## TNP training store (`data/processed/tnp_store_{crop}/`)
+
+Built by `src/data_pipeline/wofost/build_training_store.py`; read by
+`src/data/crop_datamodule.py`.
+
+| File | Contents |
+|---|---|
+| `points.csv` | One row per location: `point_id` (0..N-1, row order), `location_index` (batch runner), `country`, `zarr_index`, `longitude`, `latitude`, `crop`; statics from the CropFM zarr: `clay_0..2`, `nitrogen_0..2`, `ph_0..2`, `soc_0..2` (layers 0-5 / 5-15 / 15-30 cm, raw SoilGrids values), `elevation`, `slope`; `water_holding_capacity` = topsoil `awc` from the WOFOST runs. |
+| `seasons.csv` | One row per successful episode (point × `season_year` (= sowing year) × `jitter_index`): `sowing_date`, `season_start` (nominal start of season = sowing date − sowing offset), `flowering_date`/`maturity_date` (first day DVS ≥ 1 / ≥ 2, empty if never reached), `flowering_days`/`maturity_days` (days after `season_start`), `reached_maturity`, `yield_t_per_ha` (TWSO), `harvest_year`. |
+| `weather.npy` | float32 `[num_points, num_days, 6]`, daily `tmin`, `tmax` (°C), `precip` (mm/day), `radiation` (MJ/m²/day), `wind` (m/s at 2 m), `humidity` (vapour pressure, hPa), on the date axis starting at `weather_meta.json`'s `start_date`. One copy per location: all jitters share the weather. |
+
+Tokens built from it (per episode): `(coordinate [lat, lon, t, depth], modality_id, value)` with `t` in days since 2000-01-01 and the fixed modality vocabulary in `src/data/components/crop_vocab.py`. Weather tokens are bucket aggregates (mean for tmin/tmax/wind/humidity, sum for precip/radiation) placed at the bucket centre; static tokens at `t = 0` with `depth` = layer mid-depth (cm) for soil layers; label tokens (yield, phenology) at their season's `season_start`, phenology values in days after it. All values are z-scored with train-pool statistics (weather per bucket length).

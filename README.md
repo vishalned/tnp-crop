@@ -39,6 +39,24 @@ uv run python -m src.data_pipeline.wofost.process_wofost_dataset --manifest data
 This writes `data/processed/wofost_{crop}_daily.csv` plus a `..._columns.json` listing the id, static-feature, time-series and target columns (see `docs/data_dictionary.md`).
 Soil and weather (ERA5-Land daily, `src/data_pipeline/weather/utils_weather/gee_weather.py`) for the WOFOST run are pulled per location via Google Earth Engine (see "Google Earth Engine setup" below), and crop parameters are read from a local clone of the WOFOST_crop_parameters repo (see "Crop parameters" below) — both are one-time setup steps needed before the WOFOST commands above will run.
 
+### Training the crop TNP (TNP-D)
+
+1. Build the training store from a finished batch run (weather once per location, labels per location × season year × jitter, CropFM-zarr soil/terrain statics):
+   ```bash
+   uv run python -m src.data_pipeline.wofost.build_training_store --manifest data/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_wheat.csv --workers 8
+   ```
+   → `data/processed/tnp_store_wheat/` (`points.csv`, `seasons.csv`, `weather.npy`, `weather_meta.json`; see `docs/data_dictionary.md`).
+2. Smoke test (instantiate the datamodule from `configs/data/crop.yaml`, log the first 20 episodes' country/X/C/T/profile/token counts, run one forward + backward pass, check for NaNs):
+   ```bash
+   uv run python scripts/smoke_test_tnp_crop.py --device cuda          # real store
+   uv run python scripts/smoke_test_tnp_crop.py --synthetic            # no data needed
+   ```
+3. Train: `uv run python src/train.py experiment=tnp_crop` (configs: `configs/data/crop.yaml`, `configs/model/tnp_crop.yaml`). Normalization stats (train years only) are written to the run's `norm_stats.json` and stored inside every checkpoint.
+
+Year split (season = sowing year): train pool 2005–2016, val 2017–2018 (walk-forward during training), test 2019–2020 (walk-forward after training). Episode construction, tokens and the model changes are documented in `src/data/components/crop_episode_dataset.py` and `src/models/components/tnpd.py`; tests in `tests/test_tnp_crop.py` (`uv run pytest tests/test_tnp_crop.py`).
+
+**Token budget.** With the wheat weather window (`window_days: 322`, ~1 Oct → mid-Aug) a point-year is 46 weekly buckets × 6 variables = 276 weather tokens (192 dekadal). With X up to 10 points and C up to 11 context years (T = 2016 has 11 train years before it), the largest weekly episodes reach ~33k tokens; on the synthetic store the first 20 episodes averaged ~8k with a max of ~23k. Every training step logs `tokens/train_total_max`. To cap it: `data.max_context_years=8`, a smaller `data.max_points`, or a shorter `data.window_days`.
+
 ### Google Earth Engine setup
 
 The GEE-based soil pipeline (`src/data_pipeline/soil/utils_soil/gee_soilgrids.py`, used by `generate_gee_soil_file.py` and the WOFOST runner) and the GEE weather pipeline (`gee_weather.py`, used by the WOFOST runner and `generate_weather_file.py`) need an authenticated Earth Engine project.
