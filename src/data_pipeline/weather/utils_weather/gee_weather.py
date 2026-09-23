@@ -8,14 +8,14 @@ Source: `ECMWF/ERA5_LAND/DAILY_AGGR` -- the same ERA5-Land reanalysis
 Open-Meteo's `era5_land` model serves, pre-aggregated to daily values by
 Google (days are UTC days).
 
-Request pattern (the efficient part): the whole period for a location
-(`default_weather_start_date()` to the latest available day) comes back in a
-single `ImageCollection.getRegion` call -- one round trip per location, not
-one per year or per variable. ~26 years x 8 bands is about 110k values,
-well under getRegion's 1,048,576-value limit; longer periods are split into
-as few chunks as that limit allows. Elevation is added as an extra band on
-every image, so it rides along in the same request rather than costing a
-separate one. The result is cached per location in
+Request pattern: the whole period for a location
+(`default_weather_start_date()` to the latest available day) is fetched with
+a handful of `ImageCollection.getRegion` calls, each covering
+`DEFAULT_CHUNK_YEARS` years (~5-6 calls per location, all bands at once),
+plus one tiny call for elevation. A single call for all ~25 years fails
+with Earth Engine's "User memory limit exceeded"; chunks that still hit a
+memory limit or timeout are halved and retried automatically. The result is
+cached per location in
 `data/raw/weather/weather_{lon}_{lat}_gee_era5_land.csv` and every
 year/sowing date simulated there is cut from that file.
 
@@ -66,7 +66,15 @@ ERA5_LAND_BANDS = [
 # ERA5-Land orography isn't important.
 ELEVATION_ASSET = "USGS/GMTED2010_FULL"
 ELEVATION_BAND = "mea"
-GETREGION_MAX_VALUES = 1_048_576
+
+# getRegion chunk length. One request for the whole ~25-year period hits
+# Earth Engine's "User memory limit exceeded"; 5 years (~1,800 daily images)
+# keeps each request small while still needing only ~5-6 requests per
+# location. Halved automatically on a memory/timeout error, down to
+# MIN_CHUNK_DAYS (see `request_gee_era5_land_raw`).
+DEFAULT_CHUNK_YEARS = 5
+MIN_CHUNK_DAYS = 90
+_chunk_days = DEFAULT_CHUNK_YEARS * 365
 
 # PCSE's Open-Meteo provider defaults, used when Angstrom A/B can't be
 # estimated from the data (fewer than 200 days, or out-of-range estimates).
@@ -95,6 +103,26 @@ def _weather_cache_path(longitude: float, latitude: float, cache_dir: str) -> st
     return os.path.join(cache_dir, f"weather_{longitude}_{latitude}_{GEE_WEATHER_SOURCE}.csv")
 
 
+def _is_gee_size_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(k in msg for k in ("memory limit", "timed out", "too many", "limit exceeded", "payload"))
+
+
+def request_gee_elevation(latitude: float, longitude: float) -> float:
+    """Elevation (m) at a point from `ELEVATION_ASSET`, one small request.
+    Falls back to 0 m where the DEM has no data (it spans 56S-84N)."""
+    ensure_ee_initialized()
+    ee = _import_ee()
+    value = (
+        ee.Image(ELEVATION_ASSET)
+        .select(ELEVATION_BAND)
+        .reduceRegion(ee.Reducer.first(), ee.Geometry.Point([longitude, latitude]), 250)
+        .get(ELEVATION_BAND)
+        .getInfo()
+    )
+    return float(value) if value is not None else 0.0
+
+
 def request_gee_era5_land_raw(
     latitude: float,
     longitude: float,
@@ -102,37 +130,47 @@ def request_gee_era5_land_raw(
     end_date: datetime.date,
 ) -> pd.DataFrame:
     """Raw ERA5-Land daily bands (+ elevation) for one point over
-    [start_date, end_date], via as few `getRegion` calls as the value limit
-    allows (one for any realistic period). Returns one row per day with a
-    `DAY` column and the raw band values in their native units.
+    [start_date, end_date]. Returns one row per day with a `DAY` column and
+    the raw band values in their native units.
+
+    The period is requested in `getRegion` chunks of `_chunk_days` days
+    (`DEFAULT_CHUNK_YEARS` to start with). A single request covering ~25
+    years exceeds Earth Engine's per-request memory limit ("User memory
+    limit exceeded"), because each daily image in the range has to be
+    evaluated. If a chunk still hits that (or a timeout), it is halved
+    and retried, and the smaller size is kept for the rest of the process,
+    so later locations don't pay for the same failure again.
     """
+    global _chunk_days
     ensure_ee_initialized()
     ee = _import_ee()
 
     point = ee.Geometry.Point([longitude, latitude])
-    elevation = ee.Image(ELEVATION_ASSET).select([ELEVATION_BAND], ["elevation"])
-    bands = ERA5_LAND_BANDS + ["elevation"]
-
-    # getRegion returns id, longitude, latitude, time + one value per band.
-    values_per_day = len(bands) + 4
-    max_days = GETREGION_MAX_VALUES // values_per_day - 1
+    elevation = request_gee_elevation(latitude, longitude)
 
     frames = []
     chunk_start = start_date
     while chunk_start <= end_date:
-        chunk_end = min(end_date, chunk_start + datetime.timedelta(days=max_days - 1))
+        chunk_end = min(end_date, chunk_start + datetime.timedelta(days=_chunk_days - 1))
         collection = (
             ee.ImageCollection(ERA5_LAND_DAILY_COLLECTION)
             # filterDate's end is exclusive
             .filterDate(chunk_start.isoformat(), (chunk_end + datetime.timedelta(days=1)).isoformat())
             .select(ERA5_LAND_BANDS)
-            .map(lambda img: img.addBands(elevation))
         )
         print(
             f"getting GEE ERA5-Land weather for longitude: {longitude}, latitude: {latitude}, "
             f"{chunk_start} to {chunk_end}"
         )
-        region = collection.getRegion(point, ERA5_LAND_SCALE_M).getInfo()
+        try:
+            region = collection.getRegion(point, ERA5_LAND_SCALE_M).getInfo()
+        except ee.EEException as e:
+            if not _is_gee_size_error(e) or _chunk_days <= MIN_CHUNK_DAYS:
+                raise
+            _chunk_days = max(MIN_CHUNK_DAYS, _chunk_days // 2)
+            log.warning("GEE request too large (%s); retrying with %d-day chunks.", e, _chunk_days)
+            print(f"GEE request too large ({e}); retrying with {_chunk_days}-day chunks.")
+            continue
         header, rows = region[0], region[1:]
         if rows:
             frames.append(pd.DataFrame(rows, columns=header))
@@ -146,7 +184,8 @@ def request_gee_era5_land_raw(
 
     df = pd.concat(frames, ignore_index=True)
     df["DAY"] = pd.to_datetime(df["time"], unit="ms", utc=True).dt.date
-    df = df[["DAY"] + bands].drop_duplicates("DAY").sort_values("DAY").reset_index(drop=True)
+    df["elevation"] = elevation
+    df = df[["DAY"] + ERA5_LAND_BANDS + ["elevation"]].drop_duplicates("DAY").sort_values("DAY").reset_index(drop=True)
 
     # Points over sea / outside the ERA5-Land land mask come back as nulls.
     n_before = len(df)
