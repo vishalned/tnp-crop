@@ -22,7 +22,6 @@ jitters of one year, and their yield across years.
 """
 
 import argparse
-import os
 import sys
 
 import matplotlib.dates as mdates

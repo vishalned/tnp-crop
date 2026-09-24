@@ -12,7 +12,6 @@ Writes `summary.md` + CSV tables + PNG figures to the output folder.
 """
 
 import argparse
-import os
 import sys
 
 import numpy as np
@@ -137,7 +136,7 @@ def run(manifest_path: str, locations_csv: str = None, out_dir: str = None, wofo
     usable = ok.groupby(["location_index", "year"]).size().groupby("location_index").size()
     rep.text(f"- locations with a successful run in every year: {(usable == len(years)).sum():,} / {len(loc):,}")
     cells = ok.groupby(["location_index", "year"]).size()
-    rep.text(f"- successful jitters per location-year: " + ", ".join(f"{k}: {v:,}" for k, v in cells.value_counts().sort_index().items()))
+    rep.text("- successful jitters per location-year: " + ", ".join(f"{k}: {v:,}" for k, v in cells.value_counts().sort_index().items()))
 
     # --- 3. jittered sowing dates per country ------------------------------
     rep.section("Sowing dates (jitter) per country")
