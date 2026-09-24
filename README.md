@@ -39,6 +39,22 @@ uv run python -m src.data_pipeline.wofost.process_wofost_dataset --manifest data
 This writes `data/processed/wofost_{crop}_daily.csv` plus a `..._columns.json` listing the id, static-feature, time-series and target columns (see `docs/data_dictionary.md`).
 Soil and weather (ERA5-Land daily, `src/data_pipeline/weather/utils_weather/gee_weather.py`) for the WOFOST run are pulled per location via Google Earth Engine (see "Google Earth Engine setup" below), and crop parameters are read from a local clone of the WOFOST_crop_parameters repo (see "Crop parameters" below) — both are one-time setup steps needed before the WOFOST commands above will run.
 
+### Dataset checks
+
+Two audits of a finished batch run, each writing a `summary.md` with OK/WARN flags, CSV tables and PNG figures to `data/reports/dataset_checks/<run>/{coverage,simulation}/` (or `-o`):
+
+```bash
+# is the dataset complete? locations/countries/crops, errors per country and their causes, year coverage,
+# location x year x jitter completeness, sowing-date jitter per country, duplicates, missing episode files
+uv run python -m src.data_checks.coverage_audit --manifest data/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_wheat.csv
+
+# do the simulations make sense? yield per country/year + outliers, runs that never matured, jitter effect,
+# year-to-year variability, phenology, physical sanity of the daily curves, yield vs weather,
+# and the daily curves (DVS, LAI, biomass/yield, soil moisture + water stress, weather) of 5 random locations
+uv run python -m src.data_checks.simulation_audit --manifest data/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_wheat.csv
+```
+The locations CSV (the one the batch ran on) supplies the countries; `--wofost-dir` points at the episode files if the manifest paths moved; `--max-daily-files` (default 500) caps how many daily files the simulation audit samples.
+
 ### Training the crop TNP (TNP-D)
 
 1. Build the training store from a finished batch run (weather once per location, labels per location × season year × jitter, CropFM-zarr soil/terrain statics):

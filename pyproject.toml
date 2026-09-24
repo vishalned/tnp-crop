@@ -25,6 +25,7 @@ data = [
     "pyyaml>=6.0",
     "earthengine-api>=1.0",
     "zarr>=3.1; python_version >= '3.11'",
+    "matplotlib>=3.8",
 ]
 dev = [
   "pytest",
