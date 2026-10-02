@@ -1,10 +1,17 @@
 <div align="center">
 
-# A Variant of Transformer Neural Process for Crops
+# TabICL for Crop Yield Prediction (WOFOST)
 
 </div>
 
 <br>
+
+This branch fine-tunes (continues pretraining) [TabICLv2](https://github.com/soda-inria/tabicl),
+a pretrained tabular in-context-learning foundation model, on WOFOST-simulated
+crop seasons — in place of the TNP-D model trained on `main`. The `uv`
+environment setup and the WOFOST data pipeline (soil, weather, simulation,
+dataset checks) below are unchanged and shared with `main`; see "TabICL" for
+what's different.
 
 ## Environment Setup (uv)
 
@@ -22,7 +29,7 @@ uv sync --all-extras       # everything
 
 ### Running code
 ```bash
-uv run python src/train.py experiment=tnp_synthetic
+uv run python src/train_tabicl.py
 uv run python -m src.data_pipeline.soil.generate_soilgrids_soil_file -lon 6.656 -lat 52.966
 uv run python -m src.data_pipeline.weather.generate_weather_file -lon 6.656 -lat 52.966 --start-date 2000-01-01 --end-date 2023-12-31
 uv run python -m src.data_pipeline.wofost.run_wofost_simulation -lon 6.656 -lat 52.966 --crop wheat --year 2020
@@ -56,63 +63,46 @@ uv run python -m src.data_checks.simulation_audit --manifest data/raw/wofost/dat
 ```
 The locations CSV (the one the batch ran on) supplies the countries; `--wofost-dir` points at the episode files if the manifest paths moved; `--max-daily-files` (default 500) caps how many daily files the simulation audit samples.
 
-### Training the crop TNP (TNP-D)
-
-1. Build the training store from a finished batch run (weather once per location, labels per location × season year × jitter, CropFM-zarr soil/terrain statics):
-   ```bash
-   uv run python -m src.data_pipeline.wofost.build_training_store --manifest data/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_wheat.csv --workers 8
-   ```
-   → `data/processed/tnp_store_wheat/` (`points.csv`, `seasons.csv`, `weather.npy`, `weather_meta.json`; see `docs/data_dictionary.md`).
-2. Smoke test (instantiate the datamodule from `configs/data/crop.yaml`, log the first 20 episodes' country/X/C/T/profile/token counts, run one forward + backward pass, check for NaNs):
-   ```bash
-   uv run python scripts/smoke_test_tnp_crop.py --device cuda          # real store
-   uv run python scripts/smoke_test_tnp_crop.py --synthetic            # no data needed
-   ```
-3. Train: `uv run python src/train.py experiment=tnp_crop` (configs: `configs/data/crop.yaml`, `configs/model/tnp_crop.yaml`). Normalization stats (train years only) are written to the run's `norm_stats.json` and stored inside every checkpoint.
-
-Year split (season = sowing year): train pool 2005–2016, val 2017–2018 (walk-forward during training), test 2019–2020 (walk-forward after training). Episode construction, tokens and the model changes are documented in `src/data/components/crop_episode_dataset.py` and `src/models/components/tnpd.py`; tests in `tests/test_tnp_crop.py` (`uv run pytest tests/test_tnp_crop.py`).
-
-**Token budget.** With the wheat weather window (`window_days: 322`, ~1 Oct → mid-Aug) a point-year is 46 weekly buckets × 6 variables = 276 weather tokens (192 dekadal). With X up to 10 points and C up to 11 context years (T = 2016 has 11 train years before it), the largest weekly episodes reach ~33k tokens; on the synthetic store the first 20 episodes averaged ~8k with a max of ~23k. Every training step logs `tokens/train_total_max`. To cap it: `data.max_context_years=8`, a smaller `data.max_points`, or a shorter `data.window_days`.
-
 ### TabICL (continued pretraining on WOFOST)
 
-An alternative to the TNP-D above, on the same WOFOST training store: fine-tune
-(continue pretraining) [TabICLv2](https://github.com/soda-inria/tabicl), a
-pretrained tabular in-context-learning foundation model, instead of training
-the TNP-D from scratch.
-
-This does **not** go through `src/train.py`'s Lightning `Trainer`: TabICL's
-own `FinetunedTabICLRegressor.fit()` already *is* a complete training loop
-(AdamW + cosine-with-warmup, AMP, early stopping, HF-hub-compatible
-checkpointing) that does its own context/query meta-batching internally --
-wrapping that in a `LightningModule` would mean re-implementing what it
-already does well, for no benefit. `src/train_tabicl.py` is a separate, still
-Hydra-config-driven (`configs/tabicl.yaml`) entrypoint that owns only what
-TabICL doesn't: turning the WOFOST store into a plain tabular `(X, y)` table
-and the train/val/test split, then calls their `fit()`.
+TabICL's own `FinetunedTabICLRegressor.fit()` already *is* a complete
+training loop (AdamW + cosine-with-warmup, AMP, early stopping,
+HF-hub-compatible checkpointing) that does its own context/query
+meta-batching internally, so this does **not** go through a Lightning
+`Trainer` -- wrapping `fit()` in a `LightningModule` would mean
+re-implementing what it already does well, for no benefit.
+`src/train_tabicl.py` is a separate, still Hydra-config-driven
+(`configs/tabicl.yaml`) entrypoint that owns only what TabICL doesn't:
+turning the WOFOST store into a plain tabular `(X, y)` table and the
+train/val/test split, then calls their `fit()`.
 
 1. `uv sync --extra tabicl` (pulls in `tabicl`, pinning `transformers`/`wandb`
    ourselves -- `tabicl[finetune]` alone leaves them unpinned, which makes the
    resolver backtrack to an ancient `transformers` that needs a Rust compiler
    to build from source).
-2. `src/data/components/tabicl_table.py` flattens the same training store the
-   TNP-D datamodule reads (`build_table`) into one row per (point,
-   season_year, jitter): the static soil/terrain columns unchanged, the
-   season's daily weather window aggregated into fixed weekly (or dekadal)
-   buckets and flattened to `{variable}_b{k:02d}` columns (reusing the TNP
-   tokenizer's own `aggregate`/`intervals_for_profile`, just at one fixed
-   profile instead of one sampled per episode), and a column per label
-   (`yield_t_per_ha`, `maturity_days`). `split_table` cuts it into the same
-   train/val/test years as `configs/data/crop.yaml`; `table_to_xy` drops the
-   id/other-label columns TabICL shouldn't see.
-3. Smoke test (builds the table, fine-tunes 1-2 epochs on CPU, checks the
+2. Build the training store from a finished batch run (weather once per
+   location, labels per location × season year × jitter, CropFM-zarr
+   soil/terrain statics):
+   ```bash
+   uv run python -m src.data_pipeline.wofost.build_training_store --manifest data/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_wheat.csv --workers 8
+   ```
+   → `data/processed/tnp_store_wheat/` (`points.csv`, `seasons.csv`, `weather.npy`, `weather_meta.json`; see `docs/data_dictionary.md`).
+3. `src/data/components/tabicl_table.py` flattens that store (`build_table`)
+   into one row per (point, season_year, jitter): the static soil/terrain
+   columns unchanged, the season's daily weather window aggregated into
+   fixed weekly (or dekadal) buckets and flattened to `{variable}_b{k:02d}`
+   columns, and a column per label (`yield_t_per_ha`, `maturity_days`).
+   `split_table` cuts it into train/val/test years (season = sowing year;
+   default train pool 2005–2016, val 2017–2018, test 2019–2020);
+   `table_to_xy` drops the id/other-label columns TabICL shouldn't see.
+4. Smoke test (builds the table, fine-tunes 1-2 epochs on CPU, checks the
    predictions beat a mean-predictor baseline; downloads the ~110 MB
    pretrained checkpoint from Hugging Face Hub the first time):
    ```bash
    uv run python scripts/smoke_test_tabicl.py --store-dir data/processed/tnp_store_wheat
    uv run python scripts/smoke_test_tabicl.py --synthetic   # no data needed
    ```
-4. Fine-tune: `uv run python src/train_tabicl.py` (override e.g.
+5. Fine-tune: `uv run python src/train_tabicl.py` (override e.g.
    `finetune.epochs=50`, `target=maturity_days`, `profile=dekadal` -- see
    `configs/tabicl.yaml`). Writes `best.ckpt` (loadable directly via
    `TabICLRegressor(model_path=...)`) and `test_metrics.json` to the run's
