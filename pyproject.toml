@@ -27,6 +27,15 @@ data = [
     "zarr>=3.1; python_version >= '3.11'",
     "matplotlib>=3.8",
 ]
+tabicl = [
+  # `tabicl[finetune]` itself leaves transformers/wandb unpinned, which makes
+  # the resolver backtrack to an ancient transformers that needs a Rust
+  # compiler to build tokenizers from source -- pin a sane floor instead.
+  "tabicl>=2.2.0",
+  "transformers>=4.40",
+  "wandb>=0.17",
+  "lightning-utilities>=0.10", # for src.utils' RankedLogger/extras, without pulling in full `lightning`
+]
 dev = [
   "pytest",
   "pre-commit",

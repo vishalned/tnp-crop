@@ -1,0 +1,52 @@
+# @package _global_
+
+# Continued pretraining (fine-tuning) of TabICLv2 on the WOFOST crop store.
+# Unlike train.yaml (Lightning Trainer over the TNP-D datamodule/model),
+# this drives tabicl's own FinetunedTabICLRegressor.fit() loop -- see
+# src/train_tabicl.py and the "TabICL" section of the README.
+defaults:
+  - _self_
+  - paths: default
+  - extras: default
+  - hydra: default
+  - optional local: default
+
+task_name: "tabicl"
+tags: ["dev"]
+seed: 0
+
+# built by src/data_pipeline/wofost/build_training_store.py (same store the TNP-D datamodule reads)
+store_dir: ${paths.data_dir}/processed/tnp_store_wheat
+
+# year split (season = sowing year), same split points as configs/data/crop.yaml.
+# Unlike that datamodule's walk-forward val/test, these are just fixed row slices --
+# TabICL draws its own context/query split from whatever table it is given (see
+# src/data/components/tabicl_table.py).
+train_years: [2005, 2016]
+val_years: [2017, 2018]
+test_years: [2019, 2020]
+
+countries: [France, Germany, Belgium, United Kingdom, Denmark, Netherlands]
+static_variables: [clay, nitrogen, ph, soc, water_holding_capacity, elevation, slope]
+label_modalities: [yield, phenology_maturity] # which labels the table carries; `target` below picks one to fit on
+require_maturity: true
+window_days: 322
+pre_season_days: 14
+
+profile: weekly # weekly | dekadal -- bucket resolution of the flattened weather columns
+target: yield_t_per_ha # the LABEL_COLUMNS value to fit on (yield_t_per_ha | maturity_days | flowering_days)
+
+# forwarded to tabicl.FinetunedTabICLRegressor -- see its docstring for every option
+# (epochs, learning_rate, n_estimators_*, max_data_size, freeze_*, ...)
+finetune:
+  _target_: tabicl.FinetunedTabICLRegressor
+  epochs: 30
+  learning_rate: 1e-5
+  early_stopping: true
+  patience: 8
+  max_data_size: 10000 # rows per fine-tuning chunk; smaller -> more, smaller meta-batches per epoch
+  n_estimators_finetune: 2 # ensemble size during training (the model's batch dim)
+  n_estimators_validation: 2
+  n_estimators_inference: 8 # ensemble size of the final estimator used by predict()
+  verbose: true
+  random_state: ${seed}
