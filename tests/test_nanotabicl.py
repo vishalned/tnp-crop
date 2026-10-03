@@ -16,8 +16,8 @@ def table_path(tmp_path_factory):
     """A small processed table in process_wofost_dataset.py's layout."""
     rng = np.random.default_rng(0)
     rows = []
-    for loc in range(12):
-        country = ["France", "Germany", "Belgium"][loc % 3]
+    regions = ["France"] * 12 + ["Germany"] * 11 + ["Belgium"] * 4  # Belgium: < 10 points, dropped
+    for loc, country in enumerate(regions):
         lat, lon, awc = rng.uniform(47, 54), rng.uniform(0, 10), rng.uniform(0.15, 0.3)
         for year in range(2005, 2021):
             rain = rng.uniform(1, 3, 70)
@@ -37,7 +37,12 @@ def table_path(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def tables(table_path):
-    return CropTables(table_path, CropTableConfig(min_points=2, max_points=4, min_context_years=3, max_context_years=6))
+    return CropTables(table_path, CropTableConfig(min_context_years=3, max_context_years=6))
+
+
+@pytest.fixture(scope="module")
+def random_tables(table_path):
+    return CropTables(table_path, CropTableConfig(episodes="random"))
 
 
 def tiny_model():
@@ -80,18 +85,44 @@ def test_features_are_aggregated_and_finite(tables):
     assert tables.features[0, i] == pytest.approx(tables.df.loc[0, [f"prec_d{d:03d}" for d in range(7)]].sum(), rel=1e-5)
 
 
-def test_training_tables(tables):
+def test_small_regions_are_dropped(tables):
+    assert set(tables.country_points) == {"France", "Germany"} and tables.dropped_regions == {"Belgium": 4}
+
+
+def _rows(tables, x):
+    """Row indices of a sampled table (features are unique per row in the fixture)."""
+    return np.array([int(np.flatnonzero((tables.features == r.numpy()).all(1))[0]) for r in x])
+
+
+def test_structured_training_tables(tables):
     rng = np.random.default_rng(0)
-    countries = set()
+    sizes = set()
     for _ in range(30):
-        b = tables.sample_batch(rng, batch_size=3)
-        B, n_rows, _ = b["x"].shape
-        n_train = b["n_train"]
-        assert B == 3 and 0 < n_train < n_rows
+        b = tables.sample_batch(rng, batch_size=2)
+        n_rows, n_train = b["x"].shape[1], b["n_train"]
         n_points = n_rows - n_train
         assert n_train % n_points == 0  # n_points x n_context_years context rows
-        countries |= {tables.df.loc[int(np.flatnonzero((tables.features == b["x"][0, -1].numpy()).all(1))[0]), "country"]}
-    assert len(countries) == 3
+        sizes.add(n_points)
+        for x in b["x"]:
+            rows = _rows(tables, x)
+            years, points = tables.year[rows], tables.point[rows]
+            T = years[n_train]
+            assert (years[:n_train] < T).all() and (years[n_train:] == T).all() and T <= 2016
+            assert len(set(tables.df.loc[rows, "country"])) == 1  # one region per table
+            assert len(set(zip(points, years))) == len(rows)  # one jitter per (point, year) cell
+    assert min(sizes) >= 10 and max(sizes) > 10  # from 10 up to a region's size (France 12, Germany 11)
+
+
+def test_random_training_tables(random_tables):
+    rng = np.random.default_rng(0)
+    for _ in range(10):
+        b = random_tables.sample_batch(rng, batch_size=2)
+        n_rows, n_train = b["x"].shape[1], b["n_train"]
+        assert n_rows % 12 == 0 and 0.5 * n_rows <= n_train <= 0.9 * n_rows  # n_points x 12 train years
+        rows = _rows(random_tables, b["x"][0])
+        years = random_tables.year[rows]
+        assert years.max() <= 2016 and len(set(years[:n_train])) > 1 and len(set(years[n_train:])) >= 1
+        assert len(set(zip(random_tables.point[rows], years))) == n_rows
 
 
 def test_training_tables_respect_the_year_split(tables):
@@ -99,9 +130,10 @@ def test_training_tables_respect_the_year_split(tables):
     for _ in range(20):
         # recover the sampled rows via the sampler's own path
         n_points, n_years = 3, 4
-        idx, n_train = tables._table(rng, "France", 2014, n_points, n_years, list(range(2005, 2017)))
+        idx, n_train = tables._structured(rng, "France", n_points, n_years)
         years = tables.year[idx]
-        assert (years[:n_train] < 2014).all() and (years[n_train:] == 2014).all()
+        T = years[n_train]
+        assert (years[:n_train] < T).all() and (years[n_train:] == T).all()
         # one jitter per (point, year) cell
         cells = list(zip(tables.point[idx], tables.year[idx]))
         assert len(cells) == len(set(cells))
@@ -130,4 +162,4 @@ def test_training_step_and_evaluation(tables):
     loss.backward()
     assert torch.isfinite(loss)
     metrics, preds = evaluate_walk_forward(model, tables, [2019], "cpu")
-    assert len(preds) == 12 and np.isfinite(metrics["rmse"])
+    assert len(preds) == 23 and np.isfinite(metrics["rmse"])  # France + Germany points at 2019

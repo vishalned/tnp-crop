@@ -46,15 +46,65 @@ uv run python -m src.data_pipeline.wofost.process_wofost_dataset --manifest data
 ```
 
 `CropTables` turns each row into a feature vector: `latitude, longitude,
-awc, bulk_density` plus every daily series aggregated into `--bucket-days`
-buckets (7 = weekly; sums for prec/rad/et0/cwb, means otherwise). A training
-table is: a country (uniform), `n_points` of its points, a target year T and
-per point `n_context_years` earlier years, one jitter per (point, year):
-context rows = those cells with their yields, query rows = the points at T.
-All tables in a batch share `n_points` × `n_context_years`, so batches need
-no padding. Year split by sowing year: train 2005–2016 (T and context),
-val 2017–2018 and test 2019–2020 (walk-forward: context = every earlier
-year of the country's points, queries = the points at T).
+awc, bulk_density` plus every daily series, `fpar` and `ssm` included,
+aggregated into `--bucket-days` buckets (7 = weekly; sums for
+prec/rad/et0/cwb, means otherwise).
+
+Regions (countries) with fewer than `--min-points` (10) points are dropped.
+A training table comes from one region, uses between 10 and all of its
+points (`--max-points` / `--max-rows` cap it), and one jitter per (point,
+year) cell. Two ways to split it into context and queries
+(`--crop-episodes`):
+
+- `structured` (default; the forecasting task): a target year T and per
+  point `n_context_years` (5-11) earlier years; context = those cells with
+  their yields, queries = the points at T.
+- `random` (how TabICL is pretrained and fine-tuned): the points at every
+  train year, randomly split into context (50-90% of rows) and queries. No
+  temporal structure is needed for TabICL to learn; this mode matches its
+  original training.
+
+Either mode works for continued pretraining or from scratch. The prior
+tables always use random splits. All tables in a batch share their shape,
+so batches need no padding. Year split by sowing year: train 2005–2016;
+val 2017–2018 and test 2019–2020 are always evaluated walk-forward
+(context = every earlier year of the region's points, queries = the points
+at T).
+
+## Checkpoints
+
+nanotabicl has **no checkpoint of its own**. Its model is the TabICLv2
+architecture, so the official TabICLv2 weights load into it after a key
+rename, done by `checkpoint.py`. `python -m nanotabicl.checkpoint`
+downloads `tabicl-regressor-v2-20260212.ckpt` from the Hugging Face Hub
+(`jingang/TabICL`), converts it and runs a forward pass.
+
+## Sampling from the TabICLv2 prior
+
+`prior.py` (vendored from nanotabicl) is the full dataset generator: a
+random computation graph (MLPs, trees, GPs, discretizations, ... on random
+inputs), with columns read off its nodes, then an ExtraTrees filter that
+rejects unlearnable datasets. One dataset:
+
+```python
+from nanotabicl import prior
+cols = prior.rand_dataset_filtered(x_cat_sizes=prior.rand_cat_sizes(5), y_cat_sizes=[0], n_samples=300)
+# cols["x_0"] ... cols["x_4"]: (300, 1) each (categoricals as integer codes), cols["y_0"]: (300, 1); y_cat_sizes=[0] = regression
+```
+
+`prior_tables.py` turns that into training batches (`PriorTables`, all
+tables of a batch sharing rows/features/context size, random context/query
+split), and is also a command to look at samples:
+
+```bash
+uv run python -m nanotabicl.prior_tables --num-tables 8 --rows 200 --features 5 --out prior.npz --plot prior.png
+```
+
+`python nanotabicl/prior.py` runs the upstream demo (a grid of 2-feature
+classification datasets; needs a display). Training on the prior:
+`python -m nanotabicl.train --data prior` (or `--data mix`). Generation is
+CPU-bound (~0.3 s per small table, mostly the ExtraTrees filter), so use
+`--num-workers`.
 
 ## Running
 
@@ -65,8 +115,8 @@ uv sync --extra train --extra nanotabicl
 #    On a cluster, run this on a login node before submitting jobs.
 uv run python -m nanotabicl.checkpoint          # downloads + converts tabicl-regressor-v2-20260212.ckpt, one forward pass
 
-# 2a. continue pretraining the official weights on WOFOST tables
-uv run python -m nanotabicl.train --init official --data crop \
+# 2a. continue pretraining the official weights on WOFOST tables (--crop-episodes structured | random)
+uv run python -m nanotabicl.train --init official --data crop --crop-episodes structured \
     --table data/processed/wofost_wheat_daily.parquet --lr 3e-5 --steps 5000 --out-dir logs/nanotabicl/continue_wheat
 
 # 2b. from scratch on WOFOST tables, the TabICLv2 prior, or both

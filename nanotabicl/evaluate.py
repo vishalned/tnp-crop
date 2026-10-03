@@ -29,6 +29,7 @@ def main():
     p.add_argument("--target", default="yield_t_per_ha")
     p.add_argument("--bucket-days", type=int, default=None, help="default: the value the checkpoint was trained with, else 7")
     p.add_argument("--max-context-rows", type=int, default=4000)
+    p.add_argument("--min-points", type=int, default=10, help="regions with fewer points are left out (as in training)")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--out-dir", default=None, help="default: next to the checkpoint")
     p.add_argument("--hf-cache-dir", default=None)
@@ -39,7 +40,8 @@ def main():
     if os.path.exists(args.checkpoint):
         trained = torch.load(args.checkpoint, map_location="cpu", weights_only=False).get("args", {})
     bucket_days = args.bucket_days or trained.get("bucket_days", 7)
-    tables = CropTables(args.table, CropTableConfig(target=args.target, bucket_days=bucket_days))
+    tables = CropTables(args.table, CropTableConfig(target=args.target, bucket_days=bucket_days,
+                                                    min_points=trained.get("min_points", args.min_points)))
     model.to(args.device)
 
     metrics, preds = evaluate_walk_forward(model, tables, args.years, args.device, args.max_context_rows)

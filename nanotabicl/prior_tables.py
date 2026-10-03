@@ -42,3 +42,41 @@ class PriorTables(IterableDataset):
             n_train = int(n_rows * np.random.uniform(*self.train_fraction))
             tables = [sample_table(n_rows, n_features) for _ in range(self.batch_size)]
             yield {"x": torch.stack([t[0] for t in tables]), "y": torch.stack([t[1] for t in tables]), "n_train": n_train}
+
+
+if __name__ == "__main__":
+    # Sample regression tables from the prior and save/plot them:
+    #   python -m nanotabicl.prior_tables --num-tables 8 --rows 200 --features 5 --out prior_samples.npz --plot prior.png
+    import argparse
+
+    p = argparse.ArgumentParser(description="Sample regression tables from the TabICLv2 nanoprior.")
+    p.add_argument("--num-tables", type=int, default=8)
+    p.add_argument("--rows", type=int, default=200)
+    p.add_argument("--features", type=int, default=5)
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--out", default=None, help="save the tables as .npz (x: [n, rows, features], y: [n, rows])")
+    p.add_argument("--plot", default=None, help="save a PNG of each table's first feature vs y")
+    a = p.parse_args()
+
+    np.random.seed(a.seed)
+    torch.manual_seed(a.seed)
+    xs, ys = [], []
+    for i in range(a.num_tables):
+        x, y = sample_table(a.rows, a.features)
+        xs.append(x.numpy()); ys.append(y.numpy())
+        print(f"table {i}: x {tuple(x.shape)}, y mean {y.mean():.3f} std {y.std():.3f}, "
+              f"categorical-looking columns {sum(len(np.unique(c)) <= 100 and np.allclose(c, np.round(c)) for c in x.T.numpy())}")
+    if a.out:
+        np.savez(a.out, x=np.stack(xs), y=np.stack(ys))
+        print(f"saved {a.out}")
+    if a.plot:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        cols = min(4, a.num_tables)
+        fig, axes = plt.subplots((a.num_tables + cols - 1) // cols, cols, figsize=(3 * cols, 2.6 * ((a.num_tables + cols - 1) // cols)), squeeze=False)
+        for ax, x, y in zip(axes.flat, xs, ys):
+            ax.scatter(x[:, 0], y, s=4)
+            ax.set(xticks=[], yticks=[], xlabel="x_0", ylabel="y")
+        fig.tight_layout(); fig.savefig(a.plot, dpi=110)
+        print(f"saved {a.plot}")

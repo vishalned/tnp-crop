@@ -129,8 +129,11 @@ def main():
     p.add_argument("--bucket-days", type=int, default=7, help="weather aggregation: 7 = weekly, 10 = dekadal")
     p.add_argument("--train-years", type=int, nargs=2, default=[2005, 2016])
     p.add_argument("--val-years", type=int, nargs="+", default=[2017, 2018])
-    p.add_argument("--min-points", type=int, default=3)
-    p.add_argument("--max-points", type=int, default=10)
+    p.add_argument("--crop-episodes", default="structured", choices=["structured", "random"],
+                   help="structured: context = earlier years, queries = target year; random: TabICL-style random row split")
+    p.add_argument("--min-points", type=int, default=10, help="points per table; regions with fewer are dropped")
+    p.add_argument("--max-points", type=int, default=None, help="default: up to all points of a region")
+    p.add_argument("--max-rows", type=int, default=4096, help="cap on rows per crop table (memory)")
     p.add_argument("--min-context-years", type=int, default=5)
     p.add_argument("--max-context-years", type=int, default=11)
     p.add_argument("--prior-max-rows", type=int, default=1024)
@@ -165,9 +168,11 @@ def main():
     if args.table:
         crop = CropTables(args.table, CropTableConfig(
             train_years=args.train_years, target=args.target, bucket_days=args.bucket_days,
-            min_points=args.min_points, max_points=args.max_points,
+            episodes=args.crop_episodes, min_points=args.min_points, max_points=args.max_points, max_rows=args.max_rows,
             min_context_years=args.min_context_years, max_context_years=args.max_context_years))
-        print(f"crop table: {len(crop.df)} rows, {crop.features.shape[1]} features, countries {list(crop.country_points)}")
+        sizes = {c: len(p) for c, p in crop.country_points.items()}
+        print(f"crop table: {len(crop.df)} rows, {crop.features.shape[1]} features, points per region {sizes}"
+              + (f", dropped (< {args.min_points} points): {crop.dropped_regions}" if crop.dropped_regions else ""))
     elif args.data != "prior":
         raise ValueError("--data crop/mix needs --table.")
 
