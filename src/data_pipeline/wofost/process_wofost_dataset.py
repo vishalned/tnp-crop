@@ -40,7 +40,6 @@ import os
 import sys
 from typing import Optional
 
-import numpy as np
 import pandas as pd
 import rootutils
 
@@ -179,15 +178,26 @@ def process_wofost_dataset(
     weather_dir: Optional[str] = None,
     wofost_dir: Optional[str] = None,
     output_dir: Optional[str] = None,
+    locations_csv: Optional[str] = None,
+    file_format: str = "parquet",
 ) -> dict:
     """Build one processed table per crop from a batch-run manifest.
 
     Only `status == "success"` episodes are used. Writes, per crop:
-    `data/processed/wofost_{crop}_daily.csv` and
+    `data/processed/wofost_{crop}_daily.{parquet,csv}` and
     `data/processed/wofost_{crop}_daily_columns.json` (column groups:
     ids/metadata, static features, time-series features per variable,
-    targets). Returns `{crop: csv_path}`.
+    targets). Returns `{crop: table_path}`.
+
+    `locations_csv` (the CSV the batch ran on) adds each row's `country`,
+    joined on `location_index` (its row number). The static soil features
+    (`awc`, `bulk_density`) are the manifest's, i.e. the per-location GEE
+    soil files in `data/raw/soilgrids_gee`. Parquet is the default because
+    the daily table is large (thousands of columns); `file_format="csv"`
+    writes CSV instead.
     """
+    if file_format not in ("parquet", "csv"):
+        raise ValueError(f"file_format must be 'parquet' or 'csv', got {file_format!r}.")
     wofost_dir = wofost_dir if wofost_dir is not None else DEFAULT_WOFOST_SAVE_DIR
     manifest_path = manifest_path if manifest_path is not None else os.path.join(wofost_dir, "dataset_manifest.csv")
     weather_dir = weather_dir if weather_dir is not None else DEFAULT_WEATHER_CACHE_DIR
@@ -221,6 +231,10 @@ def process_wofost_dataset(
     if not rows:
         raise ValueError("No episodes could be processed.")
 
+    countries = None
+    if locations_csv:
+        countries = pd.read_csv(locations_csv)["country"]  # index = location_index
+
     os.makedirs(output_dir, exist_ok=True)
     written = {}
     for crop in sorted({r["crop"] for r in rows}):
@@ -228,8 +242,14 @@ def process_wofost_dataset(
         # exactly its own day columns, even days that are all NaN.
         df = pd.DataFrame([r for r in rows if r["crop"] == crop])
         df = df.sort_values(["location_index", "year", "jitter_index"]).reset_index(drop=True)
+        if countries is not None:
+            df.insert(df.columns.get_loc("location_id") + 1, "country", df["location_index"].map(countries))
         stem = os.path.join(output_dir, f"wofost_{crop}_daily")
-        df.to_csv(f"{stem}.csv", index=False)
+        path = f"{stem}.{file_format}"
+        if file_format == "parquet":
+            df.to_parquet(path, index=False)
+        else:
+            df.to_csv(path, index=False)
 
         timeseries = {
             name: [c for c in df.columns if c.startswith(f"{name}_d") and c[len(name) + 2:].isdigit()]
@@ -243,7 +263,8 @@ def process_wofost_dataset(
             "align": align,
             "pre_season_days": pre_season_days,
             "anchor_day_index": pre_season_days,
-            "ids": ["sample_id", "location_index", "location_id", "crop", "year", "sowing_year", "jitter_index"],
+            "ids": ["sample_id", "location_index", "location_id"] + (["country"] if countries is not None else [])
+            + ["crop", "year", "sowing_year", "jitter_index"],
             "metadata": ["sowing_date", "sowing_offset_days", "maturity_date", "season_length_days", "reached_maturity", "window_start"],
             "static_features": default_static_features(),
             "timeseries_features": timeseries,
@@ -253,10 +274,10 @@ def process_wofost_dataset(
             json.dump(columns, f, indent=2)
 
         print(
-            f"{crop}: {len(df)} seasons x {columns['num_days']} days -> {stem}.csv"
+            f"{crop}: {len(df)} seasons x {columns['num_days']} days -> {path}"
             + (f" ({num_missing_weather} rows with some missing weather)" if num_missing_weather else "")
         )
-        written[crop] = f"{stem}.csv"
+        written[crop] = path
 
     return written
 
@@ -267,7 +288,7 @@ def main():
         print(
             "Usage: python process_wofost_dataset.py [--manifest <path>] "
             "[--align season_start|sowing] [--pre-season-days <n>] "
-            "[--weather-dir <path>] [--wofost-dir <path>] [--output-dir <path>]"
+            "[--locations-csv <path>] [--format parquet|csv] [--weather-dir <path>] [--wofost-dir <path>] [--output-dir <path>]"
         )
         print("Example: python process_wofost_dataset.py --manifest data/raw/wofost/dataset_manifest.csv")
         sys.exit(1)
@@ -279,6 +300,8 @@ def main():
     parser.add_argument("--weather-dir", dest="weather_dir", type=str, default=DEFAULT_WEATHER_CACHE_DIR)
     parser.add_argument("--wofost-dir", dest="wofost_dir", type=str, default=DEFAULT_WOFOST_SAVE_DIR, help="Fallback location of the episode files if the manifest paths have moved.")
     parser.add_argument("-o", "--output-dir", dest="output_dir", type=str, default=DEFAULT_PROCESSED_DIR)
+    parser.add_argument("--locations-csv", dest="locations_csv", type=str, default=None, help="The locations CSV the batch ran on; adds a 'country' column.")
+    parser.add_argument("--format", dest="file_format", type=str, default="parquet", choices=["parquet", "csv"])
 
     args = parser.parse_args()
     process_wofost_dataset(
@@ -288,6 +311,8 @@ def main():
         weather_dir=args.weather_dir,
         wofost_dir=args.wofost_dir,
         output_dir=args.output_dir,
+        locations_csv=args.locations_csv,
+        file_format=args.file_format,
     )
 
 

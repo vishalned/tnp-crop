@@ -1,17 +1,16 @@
 <div align="center">
 
-# TabICL for Crop Yield Prediction (WOFOST)
+# NanoTabICL for Crop Yield Prediction (WOFOST)
 
 </div>
 
 <br>
 
-This branch fine-tunes (continues pretraining) [TabICLv2](https://github.com/soda-inria/tabicl),
-a pretrained tabular in-context-learning foundation model, on WOFOST-simulated
-crop seasons — in place of the TNP-D model trained on `main`. The `uv`
-environment setup and the WOFOST data pipeline (soil, weather, simulation,
-dataset checks) below are unchanged and shared with `main`; see "TabICL" for
-what's different.
+This branch trains [NanoTabICL](https://github.com/soda-inria/nanotabicl) (a minimal TabICLv2) on
+WOFOST-simulated crop seasons: continued pretraining from the official TabICLv2 weights, and
+pretraining from scratch on WOFOST tables and/or the TabICLv2 prior. That code is self-contained in
+[`nanotabicl/`](nanotabicl/README.md); the `uv` setup and the WOFOST data pipeline (soil, weather,
+simulation, dataset checks) below are shared with `main`.
 
 ## Environment Setup (uv)
 
@@ -23,13 +22,13 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # install uv (one-time)
 uv venv                                             # creates .venv using .python-version
 uv sync --extra train      # if you're training the TNP-D model
 uv sync --extra data       # if you're only running the data pipeline
-uv sync --extra tabicl     # if you're fine-tuning TabICL (see "TabICL" below)
+uv sync --extra nanotabicl # if you're training NanoTabICL (with --extra train for torch; see nanotabicl/README.md)
 uv sync --all-extras       # everything
 ```
 
 ### Running code
 ```bash
-uv run python src/train_tabicl.py
+uv run python -m nanotabicl.train --init official --data crop --table data/processed/wofost_wheat_daily.parquet
 uv run python -m src.data_pipeline.soil.generate_soilgrids_soil_file -lon 6.656 -lat 52.966
 uv run python -m src.data_pipeline.weather.generate_weather_file -lon 6.656 -lat 52.966 --start-date 2000-01-01 --end-date 2023-12-31
 uv run python -m src.data_pipeline.wofost.run_wofost_simulation -lon 6.656 -lat 52.966 --crop wheat --year 2020
@@ -44,7 +43,7 @@ Turn a finished batch run into training tables (one row per simulated growing se
 ```bash
 uv run python -m src.data_pipeline.wofost.process_wofost_dataset --manifest data/raw/wofost/dataset_manifest.csv
 ```
-This writes `data/processed/wofost_{crop}_daily.csv` plus a `..._columns.json` listing the id, static-feature, time-series and target columns (see `docs/data_dictionary.md`).
+This writes `data/processed/wofost_{crop}_daily.parquet` (`--format csv` for CSV; `--locations-csv` adds a `country` column) plus a `..._columns.json` listing the id, static-feature, time-series and target columns (see `docs/data_dictionary.md`).
 Soil and weather (ERA5-Land daily, `src/data_pipeline/weather/utils_weather/gee_weather.py`) for the WOFOST run are pulled per location via Google Earth Engine (see "Google Earth Engine setup" below), and crop parameters are read from a local clone of the WOFOST_crop_parameters repo (see "Crop parameters" below) — both are one-time setup steps needed before the WOFOST commands above will run.
 
 ### Dataset checks
@@ -63,52 +62,12 @@ uv run python -m src.data_checks.simulation_audit --manifest data/raw/wofost/dat
 ```
 The locations CSV (the one the batch ran on) supplies the countries; `--wofost-dir` points at the episode files if the manifest paths moved; `--max-daily-files` (default 500) caps how many daily files the simulation audit samples.
 
-### TabICL (continued pretraining on WOFOST)
+### NanoTabICL
 
-TabICL's own `FinetunedTabICLRegressor.fit()` already *is* a complete
-training loop (AdamW + cosine-with-warmup, AMP, early stopping,
-HF-hub-compatible checkpointing) that does its own context/query
-meta-batching internally, so this does **not** go through a Lightning
-`Trainer` -- wrapping `fit()` in a `LightningModule` would mean
-re-implementing what it already does well, for no benefit.
-`src/train_tabicl.py` is a separate, still Hydra-config-driven
-(`configs/tabicl.yaml`) entrypoint that owns only what TabICL doesn't:
-turning the WOFOST store into a plain tabular `(X, y)` table and the
-train/val/test split, then calls their `fit()`.
-
-1. `uv sync --extra tabicl` (pulls in `tabicl`, pinning `transformers`/`wandb`
-   ourselves -- `tabicl[finetune]` alone leaves them unpinned, which makes the
-   resolver backtrack to an ancient `transformers` that needs a Rust compiler
-   to build from source).
-2. Build the training store from a finished batch run (weather once per
-   location, labels per location × season year × jitter, CropFM-zarr
-   soil/terrain statics):
-   ```bash
-   uv run python -m src.data_pipeline.wofost.build_training_store --manifest data/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_wheat.csv --workers 8
-   ```
-   → `data/processed/tnp_store_wheat/` (`points.csv`, `seasons.csv`, `weather.npy`, `weather_meta.json`; see `docs/data_dictionary.md`).
-3. `src/data/components/tabicl_table.py` flattens that store (`build_table`)
-   into one row per (point, season_year, jitter): the static soil/terrain
-   columns unchanged, the season's daily weather window aggregated into
-   fixed weekly (or dekadal) buckets and flattened to `{variable}_b{k:02d}`
-   columns, and a column per label (`yield_t_per_ha`, `maturity_days`).
-   `split_table` cuts it into train/val/test years (season = sowing year;
-   default train pool 2005–2016, val 2017–2018, test 2019–2020);
-   `table_to_xy` drops the id/other-label columns TabICL shouldn't see.
-4. Smoke test (builds the table, fine-tunes 1-2 epochs on CPU, checks the
-   predictions beat a mean-predictor baseline; downloads the ~110 MB
-   pretrained checkpoint from Hugging Face Hub the first time):
-   ```bash
-   uv run python scripts/smoke_test_tabicl.py --store-dir data/processed/tnp_store_wheat
-   uv run python scripts/smoke_test_tabicl.py --synthetic   # no data needed
-   ```
-5. Fine-tune: `uv run python src/train_tabicl.py` (override e.g.
-   `finetune.epochs=50`, `target=maturity_days`, `profile=dekadal` -- see
-   `configs/tabicl.yaml`). Writes `best.ckpt` (loadable directly via
-   `TabICLRegressor(model_path=...)`) and `test_metrics.json` to the run's
-   output dir.
-
-Tests for the table builder: `uv run pytest tests/test_tabicl_table.py`.
+See [`nanotabicl/README.md`](nanotabicl/README.md): build the processed table with
+`process_wofost_dataset.py --locations-csv ...` (Parquet, one row per location × year × jitter),
+download/convert the official checkpoint (`python -m nanotabicl.checkpoint`), then
+`python -m nanotabicl.train` and `python -m nanotabicl.evaluate`.
 
 ### Google Earth Engine setup
 
