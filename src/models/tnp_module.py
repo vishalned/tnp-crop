@@ -4,7 +4,6 @@ import torch
 from lightning import LightningModule
 from torchmetrics import MeanMetric, MinMetric
 
-from src.data.components.crop_vocab import MODALITIES
 from src.models.components.tnpd import Batch
 
 
@@ -18,7 +17,7 @@ class TNPLitModule(LightningModule):
     distinguished by modality id, never by a separate head.
 
     Besides the loss, every step logs the NLL per target modality (e.g.
-    `train/nll_yield`) and, for padded crop-episode batches, the token
+    `train/nll_modality<id>`) and, for padded crop-episode batches, the token
     counts (`tokens/context_max`, `tokens/target_max`, `tokens/total_max`),
     so a growing episode size shows up before it becomes an OOM.
     """
@@ -77,8 +76,7 @@ class TNPLitModule(LightningModule):
         valid = torch.ones_like(ll, dtype=torch.bool) if typed.mask_t is None else typed.mask_t
         for modality_id in torch.unique(typed.mt[valid]).tolist():
             sel = valid & (typed.mt == modality_id)
-            name = MODALITIES[modality_id] if modality_id < len(MODALITIES) else str(modality_id)
-            self.log(f"{stage}/nll_{name}", -ll[sel].mean(), on_step=False, on_epoch=True, batch_size=bs)
+            self.log(f"{stage}/nll_modality{modality_id}", -ll[sel].mean(), on_step=False, on_epoch=True, batch_size=bs)
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         loss = self.model_step(batch, "train")
