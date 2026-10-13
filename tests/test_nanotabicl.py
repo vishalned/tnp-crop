@@ -8,7 +8,7 @@ import torch
 from nanotabicl import checkpoint
 from nanotabicl.crop_tables import CropTableConfig, CropTables
 from nanotabicl.model import NanoTabICLv2
-from nanotabicl.train import evaluate_walk_forward, forward_quantiles, pinball_loss
+from nanotabicl.train import checkpoint_activations, evaluate_walk_forward, forward_quantiles, pinball_loss, train_step
 
 
 @pytest.fixture(scope="module")
@@ -163,3 +163,44 @@ def test_training_step_and_evaluation(tables):
     assert torch.isfinite(loss)
     metrics, preds = evaluate_walk_forward(model, tables, [2019], "cpu")
     assert len(preds) == 23 and np.isfinite(metrics["rmse"])  # France + Germany points at 2019
+
+
+def _grads_after_step(model, batch, micro_batch_size):
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.0)  # lr 0: keep the weights, only compute gradients
+    loss = train_step(model, optimizer, batch["x"], batch["y"], batch["n_train"], "cpu", micro_batch_size, grad_clip=1e9)
+    return loss, {name: p.grad.clone() for name, p in model.named_parameters() if p.grad is not None}
+
+
+def test_micro_batches_and_activation_checkpointing_give_the_same_update(tables):
+    batch = tables.sample_batch(np.random.default_rng(0), 4)
+    model = tiny_model().double()
+    batch = {**batch, "x": batch["x"].double(), "y": batch["y"].double()}
+    loss_full, grads_full = _grads_after_step(model, batch, micro_batch_size=4)
+    loss_micro, grads_micro = _grads_after_step(model, batch, micro_batch_size=1)
+    checkpoint_activations(model)
+    loss_ckpt, grads_ckpt = _grads_after_step(model, batch, micro_batch_size=3)  # uneven split: 3 + 1 tables
+    assert loss_micro == pytest.approx(loss_full) and loss_ckpt == pytest.approx(loss_full)
+    for name, g in grads_full.items():
+        assert torch.allclose(grads_micro[name], g, atol=1e-10) and torch.allclose(grads_ckpt[name], g, atol=1e-10), name
+
+
+def test_activation_checkpointing_stores_less():
+    """Bytes kept for the backward pass, with and without checkpointing."""
+    x, y = torch.randn(1, 200, 40), torch.randn(1, 160)
+
+    def saved_bytes(model):
+        total = 0
+
+        def pack(t):
+            nonlocal total
+            total += t.numel() * t.element_size()
+            return t
+
+        with torch.autograd.graph.saved_tensors_hooks(pack, lambda t: t):
+            model(x, y)
+        return total
+
+    model = tiny_model()
+    plain = saved_bytes(model)
+    checkpoint_activations(model)
+    assert saved_bytes(model) < plain / 3

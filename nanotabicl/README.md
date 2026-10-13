@@ -117,11 +117,13 @@ uv run python -m nanotabicl.checkpoint          # downloads + converts tabicl-re
 
 # 2a. continue pretraining the official weights on WOFOST tables (--crop-episodes structured | random)
 uv run python -m nanotabicl.train --init official --data crop --crop-episodes structured \
-    --table data/processed/wofost_wheat_daily.parquet --lr 3e-5 --steps 5000 --out-dir logs/nanotabicl/continue_wheat
+    --table data/processed/wofost_wheat_daily.parquet --lr 3e-5 --steps 5000 \
+    --micro-batch-size 1 --checkpoint-activations --out-dir logs/nanotabicl/continue_wheat
 
 # 2b. from scratch on WOFOST tables, the TabICLv2 prior, or both
 uv run python -m nanotabicl.train --init scratch --size small --data mix --prior-fraction 0.5 \
-    --table data/processed/wofost_wheat_daily.parquet --lr 1e-3 --steps 50000 --num-workers 8 --out-dir logs/nanotabicl/scratch_mix
+    --table data/processed/wofost_wheat_daily.parquet --lr 1e-3 --steps 50000 --num-workers 8 \
+    --micro-batch-size 1 --checkpoint-activations --out-dir logs/nanotabicl/scratch_mix
 
 # 3. walk-forward test evaluation (2019-2020); --checkpoint official = zero-shot baseline
 uv run python -m nanotabicl.evaluate --checkpoint logs/nanotabicl/continue_wheat/best.pt --table data/processed/wofost_wheat_daily.parquet
@@ -139,6 +141,25 @@ per-point-mean baseline), `best.pt` (lowest val RMSE) and `last.pt` to
 `--out-dir`. Evaluation writes `metrics_<years>.json` and
 `predictions_<years>.csv` (one row per query: true/predicted yield and the
 baseline).
+
+## GPU memory
+
+Every cell of a table becomes a 128-dim vector inside the model, and training
+keeps the intermediate results of every block for the backward pass. With
+weekly buckets the tables are wide (~355 features for maize, ~517 for wheat),
+so one 4096-row table alone needs tens of GB. Two switches, neither changes
+the result of a step:
+
+- `--micro-batch-size m`: the `--batch-size` tables of a step go through the
+  model `m` at a time; gradients are summed and the optimizer steps once.
+- `--checkpoint-activations`: each transformer block keeps only its input and
+  recomputes its internals in the backward pass (~10x less stored, ~30%
+  slower).
+
+On a 40 GB A100 use `--micro-batch-size 1 --checkpoint-activations`; the log
+prints the peak GPU memory (`peak_mem_gb` in `log.csv`), so raise
+`--micro-batch-size` if there's room, or lower `--max-rows` if not.
+Evaluation needs neither (no gradients).
 
 ## Notes
 

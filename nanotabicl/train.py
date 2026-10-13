@@ -14,6 +14,13 @@ rows -- the same objective as the official TabICL pretraining
 (`tabicl/train/_run.py`). AdamW with linear warmup + cosine decay, gradient
 clipping, bf16 autocast on CUDA.
 
+Memory: a batch of `--batch-size` tables is processed `--micro-batch-size`
+tables at a time, with gradients accumulated over the micro-batches before one
+optimizer step (same update as the whole batch at once). With
+`--checkpoint-activations` every transformer block keeps only its input and
+recomputes the rest in the backward pass (less memory, ~30% slower). The log
+reports the peak GPU memory.
+
 Every `--eval-every` steps it runs the walk-forward evaluation on the val
 years (see `evaluate.py`) and keeps the checkpoint with the lowest val RMSE.
 Writes `last.pt`, `best.pt`, `config.json` and `log.csv` to `--out-dir`.
@@ -22,6 +29,7 @@ Writes `last.pt`, `best.pt`, `config.json` and `log.csv` to `--out-dir`.
 import argparse
 import contextlib
 import csv
+import functools
 import json
 import math
 import os
@@ -29,10 +37,12 @@ import time
 
 import numpy as np
 import torch
+import torch.utils.checkpoint
 from torch.utils.data import DataLoader, IterableDataset
 
 from nanotabicl import checkpoint
 from nanotabicl.crop_tables import CropTableConfig, CropTables
+from nanotabicl.model import TransformerBlock
 
 
 def pinball_loss(quantiles: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
@@ -52,6 +62,31 @@ def standardize_targets(y: torch.Tensor, n_train: int) -> tuple:
 
 def autocast(device: str):
     return torch.autocast("cuda", dtype=torch.bfloat16) if device.startswith("cuda") else contextlib.nullcontext()
+
+
+def checkpoint_activations(model) -> None:
+    """Activation checkpointing: every transformer block stores only its input in the forward pass and
+    recomputes its internals in the backward pass. Gradients are unchanged."""
+    for module in model.modules():
+        if isinstance(module, TransformerBlock):
+            module.forward = functools.partial(torch.utils.checkpoint.checkpoint, module.forward, use_reentrant=False)
+
+
+def train_step(model, optimizer, x: torch.Tensor, y: torch.Tensor, n_train: int, device: str,
+               micro_batch_size: int, grad_clip: float) -> float:
+    """One optimizer step on a batch of tables, `micro_batch_size` tables at a time with gradients
+    accumulated (the same update as the whole batch at once). Returns the batch's mean loss."""
+    optimizer.zero_grad(set_to_none=True)
+    total = 0.0
+    for start in range(0, x.shape[0], micro_batch_size):
+        xs, ys = x[start:start + micro_batch_size], y[start:start + micro_batch_size]
+        quantiles, y_query, _, _ = forward_quantiles(model, xs, ys, n_train, device)
+        loss = pinball_loss(quantiles, y_query) * (xs.shape[0] / x.shape[0])  # weighted so the sum = batch mean
+        loss.backward()
+        total += loss.item()
+    torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+    optimizer.step()
+    return total
 
 
 def forward_quantiles(model, x: torch.Tensor, y: torch.Tensor, n_train: int, device: str) -> tuple:
@@ -139,7 +174,11 @@ def main():
     p.add_argument("--prior-max-rows", type=int, default=1024)
     p.add_argument("--prior-max-features", type=int, default=100)
     p.add_argument("--steps", type=int, default=10000)
-    p.add_argument("--batch-size", type=int, default=8)
+    p.add_argument("--batch-size", type=int, default=8, help="tables per optimizer step")
+    p.add_argument("--micro-batch-size", type=int, default=1,
+                   help="tables per forward/backward pass; gradients are accumulated over the batch")
+    p.add_argument("--checkpoint-activations", action="store_true",
+                   help="recompute block activations in the backward pass instead of storing them (less memory, slower)")
     p.add_argument("--lr", type=float, default=1e-4, help="~1e-5..1e-4 when continuing from official, ~1e-3 from scratch")
     p.add_argument("--warmup", type=int, default=200)
     p.add_argument("--weight-decay", type=float, default=0.0)
@@ -162,7 +201,11 @@ def main():
     if model_config.get("max_classes", 0) != 0:
         raise ValueError("This loop trains regression; use a regression checkpoint (max_classes=0).")
     model.to(args.device).train()
-    print(f"model: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M parameters, init={args.init}")
+    if args.checkpoint_activations:
+        checkpoint_activations(model)
+    print(f"model: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M parameters, init={args.init}, "
+          f"micro-batch {args.micro_batch_size} of batch {args.batch_size}, activation checkpointing {args.checkpoint_activations}")
+    cuda = args.device.startswith("cuda")
 
     crop = None
     if args.table:
@@ -192,21 +235,15 @@ def main():
     running, t0 = [], time.time()
     with open(log_path, "w", newline="") as log_file:
         log = csv.writer(log_file)
-        log.writerow(["step", "source", "loss", "lr", "val_rmse", "val_r2", "val_baseline_rmse", "seconds"])
+        log.writerow(["step", "source", "loss", "lr", "val_rmse", "val_r2", "val_baseline_rmse", "peak_mem_gb",
+                      "table_rows", "table_features", "seconds"])
         for step in range(args.steps):
             source = "prior" if args.data == "prior" or (args.data == "mix" and rng.random() < args.prior_fraction) else "crop"
             batch = next(streams[source])
             x, y, n = batch["x"].to(args.device), batch["y"].to(args.device), int(batch["n_train"])
-            quantiles, y_query, _, _ = forward_quantiles(model, x, y, n, args.device)
-            loss = pinball_loss(quantiles, y_query)
-
             for group in optimizer.param_groups:
                 group["lr"] = lr_at(step, args.lr, args.warmup, args.steps)
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
-            optimizer.step()
-            running.append(loss.item())
+            running.append(train_step(model, optimizer, x, y, n, args.device, args.micro_batch_size, args.grad_clip))
 
             val = {}
             if crop is not None and ((step + 1) % args.eval_every == 0 or step + 1 == args.steps):
@@ -217,12 +254,17 @@ def main():
                 print(f"step {step + 1}: val rmse {val.get('rmse', float('nan')):.3f} r2 {val.get('r2', float('nan')):.3f} "
                       f"(baseline rmse {val.get('baseline_rmse', float('nan')):.3f})")
             if (step + 1) % args.log_every == 0 or val:
+                # peak GPU memory since the last log line (training steps and any evaluation in between)
+                peak = torch.cuda.max_memory_allocated() / 1e9 if cuda else float("nan")
                 print(f"step {step + 1}/{args.steps} | {source} | loss {np.mean(running):.4f} | lr {optimizer.param_groups[0]['lr']:.2e} "
-                      f"| {time.time() - t0:.0f}s")
+                      f"| table {x.shape[1]} rows x {x.shape[2]} features | peak GPU mem {peak:.1f} GB | {time.time() - t0:.0f}s")
                 log.writerow([step + 1, source, np.mean(running), optimizer.param_groups[0]["lr"], val.get("rmse"),
-                              val.get("r2"), val.get("baseline_rmse"), round(time.time() - t0, 1)])
+                              val.get("r2"), val.get("baseline_rmse"), round(peak, 2), x.shape[1], x.shape[2],
+                              round(time.time() - t0, 1)])
                 log_file.flush()
                 running = []
+                if cuda:
+                    torch.cuda.reset_peak_memory_stats()
     checkpoint.save(os.path.join(args.out_dir, "last.pt"), model, model_config, step=args.steps, args=vars(args))
     print(f"done; checkpoints in {args.out_dir}")
 
