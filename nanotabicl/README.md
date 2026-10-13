@@ -15,7 +15,7 @@ it only reads the processed table `src/data_pipeline` produces.
 | `train.py` | (continued) pretraining loop | ours, in the style of [nanoTabPFN](https://github.com/automl/nanoTabPFN)'s `train.py` |
 | `evaluate.py` | walk-forward evaluation on val/test years | ours |
 
-Tests: `uv run pytest tests/test_nanotabicl.py`.
+Tests: `uv run pytest tests/test_nanotabicl.py`. A walkthrough of the whole pipeline, from the WOFOST simulations to the model internals, is in [`docs/manual.md`](../docs/manual.md).
 
 ## Why this layout
 
@@ -146,7 +146,7 @@ baseline).
 
 Every cell of a table becomes a 128-dim vector inside the model, and training
 keeps the intermediate results of every block for the backward pass. With
-weekly buckets the tables are wide (~355 features for maize, ~517 for wheat),
+weekly buckets the tables are wide (~355 features for maize, ~508 for wheat),
 so one 4096-row table alone needs tens of GB. Two switches, neither changes
 the result of a step:
 
