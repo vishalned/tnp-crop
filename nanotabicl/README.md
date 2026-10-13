@@ -146,7 +146,7 @@ baseline).
 
 Every cell of a table becomes a 128-dim vector inside the model, and training
 keeps the intermediate results of every block for the backward pass. With
-weekly buckets the tables are wide (~355 features for maize, ~508 for wheat),
+weekly buckets the tables are wide (346 features for maize, 508 for wheat),
 so one 4096-row table alone needs tens of GB. Two switches, neither changes
 the result of a step:
 
