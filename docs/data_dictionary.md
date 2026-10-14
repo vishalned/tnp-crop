@@ -148,16 +148,22 @@ harvested Jul 2014 has `year = 2014`, `sowing_year = 2013`.
 | Column(s) | Meaning |
 |---|---|
 | `sample_id`, `location_index`, `location_id`, `country` (with `--locations-csv`), `crop`, `year`, `sowing_year`, `jitter_index` | Identifiers (`location_id` = `"{lon}_{lat}"`; `sample_id` = `"{lon}_{lat}_{crop}_{year}_j{jitter_index}"`) — each location/year has several sowing-date jitters |
-| `latitude`, `longitude`, `awc`, `bulk_density` | Static features (soil ones from the topsoil, as in the summary JSON) |
-| `sos_doy` | Nominal start-of-season day of year for the crop (`default_sowing_doy()`, stand-in for the WorldCereal SOS) |
+| `latitude`, `longitude`, `awc` (cm/m = 100 × the summary's m³/m³, WISE's unit), `bulk_density` (g/cm³) | Static features (soil ones from the topsoil) |
+| `sos_doy`, `eos_doy` | Crop calendar start/end of season (day of year): the location's WorldCereal SOS/EOS from the manifest (older runs without a calendar: `sos_doy` = `default_sowing_doy()`, `eos_doy` empty) |
 | `sowing_doy`, `sowing_date`, `sowing_offset_days` | Actual (jittered) sowing day, and its offset from the nominal season start |
 | `maturity_date`, `season_length_days`, `reached_maturity` | When DVS reached 2 (metadata — not known at forecast time, don't use as an input feature) |
-| `window_start` | Date of day 0 of the time series |
+| `window_start`, `window_end` | Dates of day 0 and of the last day of this row's window (`calendar`: SOS − 60 and EOS; later days are NaN) |
 | `yield_t_per_ha` / `yield_kg_per_ha` | **Target**: `TWSO` (storage-organ dry matter) at maturity |
 | `{feature}_d{k:03d}` | Daily time series (unaggregated), day `k` counted from `window_start` |
 
-Day 0 is `--pre-season-days` (default 30) before the anchor: the crop's
-nominal season start that year (`--align season_start`, default) or the
+`--align calendar` (default): the window is CY-Bench's feature window,
+`[SOS − 60 days, EOS]` from the row's crop calendar (`--pre-season-days`,
+default 60); every row has the crop's longest window's number of day columns,
+NaN after its own EOS. Needs a run with a calendar (manifest
+`sos_doy`/`eos_doy`, see `generate_wofost_dataset.py`).
+
+Otherwise day 0 is `--pre-season-days` (default 30) before the anchor: the crop's
+nominal season start that year (`--align season_start`) or the
 actual sowing date (`--align sowing`). The anchor is at index
 `anchor_day_index` in the columns JSON. Every row of a crop has
 `pre_season_days + max_duration` days (wheat: 30 + 365 = 395), independent
@@ -167,11 +173,17 @@ of when the crop matured.
 |---|---|---|
 | `tmin`, `tmax`, `tavg` | weather cache | °C |
 | `prec` | weather cache (`RAIN`) | mm/day |
-| `rad` | weather cache (`IRRAD`) | MJ/m²/day |
+| `rad` | weather cache (`IRRAD`) | J/m²/day (AgERA5's unit) |
 | `et0` | weather cache (`ET0`) | mm/day |
 | `cwb` | `prec - et0` | mm/day |
-| `fpar` | daily WOFOST CSV | fraction; 0 before sowing and after maturity (bare field) |
-| `ssm` | daily WOFOST CSV (`SM_layer0`) | cm³/cm³; NaN before sowing and after maturity (not simulated) |
+| `fpar` | daily WOFOST CSV | % (0–100, JRC FPAR's unit); 0 before sowing and after maturity (bare field) |
+| `ssm` | daily WOFOST CSV: `10 × (WC_layer0 + ½ WC_layer1)` | kg/m² of water in 0–10 cm (GLDAS's surface layer) |
+| `rsm` | daily WOFOST CSV: `10 × Σ WC_layer0..4` | kg/m² of water in 0–100 cm (GLDAS's root zone) |
+
+Soil moisture exists for the whole window in calendar runs (the water
+balance runs from SOS − 60 days, bare soil before sowing and after
+maturity); in older runs that stopped at maturity it is NaN outside the
+crop's life.
 
 Note: WOFOST's `TWSO` is dry matter, while reported (e.g. CYBench) yields
 are usually at a standard moisture content, so absolute levels differ.

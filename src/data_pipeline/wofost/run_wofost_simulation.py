@@ -19,6 +19,7 @@ from src.data_pipeline.wofost.utils_wofost.agromanagement import (
 from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import (
     default_crop_variety,
     default_max_duration_days,
+    default_pre_season_days,
     default_sowing_doy,
     wofost_model_name,
 )
@@ -45,6 +46,8 @@ def generate_wofost_episode(
     output_dir: Optional[str] = None,
     force_refresh_soil: bool = False,
     sowing_offset_days: Optional[int] = None,
+    eos_doy: Optional[int] = None,
+    pre_season_days: Optional[int] = None,
 ) -> dict:
     """Run one end-to-end WOFOST/PCSE simulation episode for a location/year
     and cache the daily driver+output trajectory (with CYBench-aligned
@@ -56,11 +59,19 @@ def generate_wofost_episode(
     (`generate_gee_soil_file.generate_soil_data_for_wofost`), not a single
     collapsed bucket.
 
-    :param sowing_doy: day-of-year sowing anchor. Defaults to a rough,
-        location-agnostic placeholder per crop (see
-        `default_wofost_variables.default_sowing_doy`) -- TODO: replace with
-        the real per-location WorldCereal start-of-season (SOS) once that
-        extraction pipeline exists.
+    :param sowing_doy: day-of-year sowing anchor: the crop calendar's start
+        of season (WorldCereal SOS; the batch runner passes the location's
+        `sos_doy`). Defaults to a rough, location-agnostic placeholder per
+        crop (see `default_wofost_variables.default_sowing_doy`).
+    :param eos_doy: the crop calendar's end of season (WorldCereal EOS). The
+        simulation then runs until at least that day (and at least until the
+        crop's max duration), so the soil water balance covers the whole
+        CY-Bench feature window even after maturity.
+    :param pre_season_days: the campaign starts this many days before the
+        season start (the unjittered anchor), so the soil water balance runs
+        on bare soil before sowing (default
+        `default_wofost_variables.default_pre_season_days()`, 60 = CY-Bench's
+        `sos-60` window start).
     :param sowing_offset_days: sow exactly this many days after (negative:
         before) the anchor instead of a random jitter; `sowing_jitter_days`
         and `seed` are then unused. The batch runner uses this to run
@@ -77,11 +88,21 @@ def generate_wofost_episode(
     variety_name = variety_name if variety_name is not None else default_crop_variety()[crop]
     anchor_doy = sowing_doy if sowing_doy is not None else default_sowing_doy()[crop]
     max_duration = default_max_duration_days()[crop]
+    pre_season_days = pre_season_days if pre_season_days is not None else default_pre_season_days()
 
     if sowing_offset_days is not None:
         sowing_date = sowing_date_from_offset(year, anchor_doy, sowing_offset_days)
     else:
         sowing_date = jitter_sowing_date(year, anchor_doy, sowing_jitter_days, rng=random.Random(seed))
+
+    season_start = sowing_date_from_offset(year, anchor_doy, 0)
+    campaign_start = min(season_start - datetime.timedelta(days=pre_season_days), sowing_date)
+    campaign_end = sowing_date + datetime.timedelta(days=max_duration + 1)
+    if eos_doy is not None:
+        # EOS before SOS in the calendar = the season ends the following year
+        eos_year = year + 1 if eos_doy < anchor_doy else year
+        season_end = datetime.date(eos_year, 1, 1) + datetime.timedelta(days=int(eos_doy) - 1)
+        campaign_end = max(campaign_end, season_end + datetime.timedelta(days=1))
 
     model_class = getattr(pcse_models, wofost_model_name())
 
@@ -90,12 +111,12 @@ def generate_wofost_episode(
         longitude, latitude, force_refresh=force_refresh_soil
     )
 
-    print(f"getting weather to run WOFOST for longitude: {longitude}, latitude: {latitude}, from {sowing_date}")
+    print(f"getting weather to run WOFOST for longitude: {longitude}, latitude: {latitude}, from {campaign_start}")
     weather_data_provider = get_gee_weather_provider_for_location(
         latitude=latitude,
         longitude=longitude,
-        start_date=sowing_date,
-        end_date=sowing_date + datetime.timedelta(days=max_duration),
+        start_date=campaign_start,
+        end_date=campaign_end,
     )
 
     params = build_parameter_provider(
@@ -109,6 +130,8 @@ def generate_wofost_episode(
         variety_name=variety_name,
         sowing_date=sowing_date,
         max_duration=max_duration,
+        campaign_start=campaign_start,
+        campaign_end=campaign_end,
     )
 
     daily_output, summary = run_wofost(model_class, params, weather_data_provider, agromanagement)
@@ -133,7 +156,11 @@ def generate_wofost_episode(
         "variety_name": variety_name,
         "year": year,
         "sowing_date": sowing_date.isoformat(),
-        "sowing_offset_days": (sowing_date - sowing_date_from_offset(year, anchor_doy, 0)).days,
+        "sowing_offset_days": (sowing_date - season_start).days,
+        "sos_doy": int(anchor_doy),
+        "eos_doy": int(eos_doy) if eos_doy is not None else None,
+        "campaign_start": campaign_start.isoformat(),
+        "campaign_end": campaign_end.isoformat(),
         # yield: total weight storage organs (kg/ha) at maturity
         "yield_kg_per_ha": summary.get("TWSO"),
         "final_dvs": summary.get("DVS"),
@@ -173,6 +200,8 @@ def main():
     parser.add_argument("--sowing-doy", dest="sowing_doy", type=int, default=None)
     parser.add_argument("--sowing-jitter-days", dest="sowing_jitter_days", type=int, default=10)
     parser.add_argument("--sowing-offset-days", dest="sowing_offset_days", type=int, default=None, help="Sow exactly this many days after the anchor (overrides the random jitter).")
+    parser.add_argument("--eos-doy", dest="eos_doy", type=int, default=None, help="Crop calendar end of season (day of year); the simulation runs until at least then.")
+    parser.add_argument("--pre-season-days", dest="pre_season_days", type=int, default=None, help="Start the campaign this many days before the season start (default 60).")
     parser.add_argument("--seed", dest="seed", type=int, default=None)
     parser.add_argument("-o", "--output-dir", dest="output_dir", type=str, default=DEFAULT_WOFOST_SAVE_DIR)
     parser.add_argument("--force-refresh-soil", dest="force_refresh_soil", action="store_true", help="Re-query Earth Engine for soil even if a soil file already exists for this location.")
@@ -191,6 +220,8 @@ def main():
         output_dir=args.output_dir,
         force_refresh_soil=args.force_refresh_soil,
         sowing_offset_days=args.sowing_offset_days,
+        eos_doy=args.eos_doy,
+        pre_season_days=args.pre_season_days,
     )
 
 

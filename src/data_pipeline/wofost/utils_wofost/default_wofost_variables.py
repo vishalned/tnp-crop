@@ -47,6 +47,16 @@ def default_sowing_doy():
     }
 
 
+def default_pre_season_days():
+    """Days before the season start (calendar SOS) that a simulation's
+    campaign starts. The soil water balance runs from then on bare soil, so
+    soil moisture exists for CY-Bench's whole feature window, which starts at
+    SOS - 60 days (`start_of_sequence: sos-60` in the benchmark's
+    `feature_design.yaml`).
+    """
+    return 60
+
+
 def default_max_duration_days():
     """Upper bound on days from sowing to forced crop-cycle termination. PCSE
     stops the run at this point even if maturity (DVS=2) is never reached --

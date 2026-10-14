@@ -7,6 +7,12 @@ default) and, per year, `num_jitters` (3) simulations with distinct sowing
 dates within +/- `sowing_jitter_days` of the crop's season start -- so
 `locations x 16 years x 3 jitters` episodes. Sub-sampling years/jitters is
 left to the dataloader.
+
+The season start is the location's crop calendar (`sos_doy`/`eos_doy`
+columns of the locations CSV, the WorldCereal SOS/EOS) when present, else
+the crop's placeholder `default_sowing_doy()`. Each simulation runs from
+`default_pre_season_days()` (60) before the season start until at least the
+season end, so soil moisture covers CY-Bench's whole feature window.
 """
 
 import argparse
@@ -26,6 +32,7 @@ from src.data_pipeline.weather.utils_weather.gee_weather import get_gee_weather_
 from src.data_pipeline.wofost.run_wofost_simulation import DEFAULT_WOFOST_SAVE_DIR, generate_wofost_episode
 from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import (
     default_max_duration_days,
+    default_pre_season_days,
     default_sowing_doy,
 )
 
@@ -47,7 +54,8 @@ def _sample_jitter_offsets(rng: random.Random, num_jitters: int, sowing_jitter_d
 
 
 def _prefetch_weather_for_window(
-    longitude: float, latitude: float, crop: str, years: list, sowing_jitter_days: int
+    longitude: float, latitude: float, crop: str, years: list, sowing_jitter_days: int,
+    sos_doy: Optional[int] = None, eos_doy: Optional[int] = None,
 ) -> None:
     """Download a location's weather for its whole year window in one go,
     before its episodes run, so each episode is then a cache hit.
@@ -58,14 +66,22 @@ def _prefetch_weather_for_window(
     Failures are only printed: each episode retries the fetch itself and
     records its own failure in the manifest.
     """
-    last_needed = datetime.date(years[-1], 1, 1) + datetime.timedelta(
-        days=default_sowing_doy()[crop] - 1 + sowing_jitter_days + default_max_duration_days()[crop]
+    anchor_doy = sos_doy if sos_doy is not None else default_sowing_doy()[crop]
+    first_needed = min(
+        datetime.date(years[0], 1, 1),
+        datetime.date(years[0], 1, 1) + datetime.timedelta(days=anchor_doy - 1 - default_pre_season_days()),
     )
+    last_needed = datetime.date(years[-1], 1, 1) + datetime.timedelta(
+        days=anchor_doy - 1 + sowing_jitter_days + default_max_duration_days()[crop] + 1
+    )
+    if eos_doy is not None:
+        eos_year = years[-1] + 1 if eos_doy < anchor_doy else years[-1]
+        last_needed = max(last_needed, datetime.date(eos_year, 1, 1) + datetime.timedelta(days=eos_doy))
     try:
         get_gee_weather_provider_for_location(
             latitude=latitude,
             longitude=longitude,
-            start_date=datetime.date(years[0], 1, 1),
+            start_date=first_needed,
             end_date=last_needed,
         )
     except Exception as e:
@@ -81,6 +97,8 @@ def _empty_row(job: dict, year: int, jitter_index: int, sowing_offset_days: int)
         "year": year,
         "jitter_index": jitter_index,
         "sowing_offset_days": sowing_offset_days,
+        "sos_doy": job["sos_doy"],
+        "eos_doy": job["eos_doy"],
         "status": "failed",
         "error": None,
         "sowing_date": None,
@@ -109,7 +127,8 @@ def _run_location_group(jobs: list, sowing_jitter_days: int, save_dir: str, num_
         longitude, latitude, crop, years = job["longitude"], job["latitude"], job["crop"], job["years"]
         tag = f"[{job['location_index'] + 1}/{num_locations}] {crop} at ({longitude}, {latitude})"
         print(f"{tag}, years {years[0]}-{years[-1]}", flush=True)
-        _prefetch_weather_for_window(longitude, latitude, crop, years, sowing_jitter_days)
+        _prefetch_weather_for_window(longitude, latitude, crop, years, sowing_jitter_days,
+                                     sos_doy=job["sos_doy"], eos_doy=job["eos_doy"])
 
         for year, jitter_index, offset in _episodes(job):
             print(f"{tag}, year {year}, jitter {jitter_index} ({offset:+d} days)", flush=True)
@@ -121,6 +140,8 @@ def _run_location_group(jobs: list, sowing_jitter_days: int, save_dir: str, num_
                     crop=crop,
                     year=year,
                     sowing_offset_days=offset,
+                    sowing_doy=job["sos_doy"],
+                    eos_doy=job["eos_doy"],
                     output_dir=save_dir,
                 )
                 summary = result["summary"]
@@ -163,6 +184,7 @@ def generate_wofost_dataset(
     seed: Optional[int] = None,
     output_dir: Optional[str] = None,
     num_workers: Optional[int] = None,
+    max_locations: Optional[int] = None,
 ) -> dict:
     """Run WOFOST episodes for a batch of locations -- every year in
     `[start_year, end_year]` (sowing year), `num_jitters` sowing dates per
@@ -171,7 +193,8 @@ def generate_wofost_dataset(
     alongside the per-episode files `generate_wofost_episode` already writes.
 
     :param locations: list of dicts, each with `longitude`/`latitude` and
-        optionally `crop` (overrides `crop` for that location).
+        optionally `crop` (overrides `crop` for that location) and the crop
+        calendar `sos_doy`/`eos_doy` (day of year).
     :param crop: default crop for locations that don't specify their own.
     :param num_jitters: sowing dates simulated per location and year: distinct
         random offsets within +/- `sowing_jitter_days` of the crop's season
@@ -180,6 +203,10 @@ def generate_wofost_dataset(
         over them (all rows with the same coordinates go to the same
         worker). 1 runs everything in this process, one location after the
         other. Defaults to `min(8, cpu count)`.
+    :param max_locations: only run the first `max_locations` locations (rows
+        of the locations CSV, so `location_index` keeps its meaning). The
+        sowing offsets of every location are still drawn, so a location gets
+        the same episodes whatever this is.
 
     Sowing offsets are all drawn up front in this process, in location
     order, so a given `seed` gives the same episodes whatever `num_workers`
@@ -208,15 +235,19 @@ def generate_wofost_dataset(
             raise ValueError(
                 f"No crop given for location #{i} ({longitude}, {latitude}) and no default --crop set."
             )
+        sos_doy, eos_doy = location.get("sos_doy"), location.get("eos_doy")
         job = {
             "location_index": i,
             "longitude": longitude,
             "latitude": latitude,
             "crop": location_crop,
+            "sos_doy": int(sos_doy) if pd.notna(sos_doy) else None,
+            "eos_doy": int(eos_doy) if pd.notna(eos_doy) else None,
             "years": years,
             "sowing_offsets": [_sample_jitter_offsets(rng, num_jitters, sowing_jitter_days) for _ in years],
         }
-        groups.setdefault((longitude, latitude), []).append(job)
+        if max_locations is None or i < max_locations:
+            groups.setdefault((longitude, latitude), []).append(job)
 
     manifest_rows = []
 
@@ -298,6 +329,7 @@ def main():
     parser.add_argument("--sowing-jitter-days", dest="sowing_jitter_days", type=int, default=10, help="Sowing dates are drawn within +/- this many days of the season start (default 10).")
     parser.add_argument("--seed", dest="seed", type=int, default=None)
     parser.add_argument("--workers", dest="num_workers", type=int, default=None, help="Worker processes running locations in parallel (default: min(8, cpu count); 1 = sequential).")
+    parser.add_argument("--max-locations", dest="max_locations", type=int, default=None, help="Only run the first N locations of the CSV (default: all).")
     parser.add_argument("-o", "--output-dir", dest="output_dir", type=str, default=DEFAULT_WOFOST_SAVE_DIR)
 
     args = parser.parse_args()
@@ -314,6 +346,7 @@ def main():
         seed=args.seed,
         output_dir=args.output_dir,
         num_workers=args.num_workers,
+        max_locations=args.max_locations,
     )
 
 
