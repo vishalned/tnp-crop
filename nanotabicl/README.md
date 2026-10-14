@@ -45,10 +45,23 @@ uv run python -m src.data_pipeline.wofost.process_wofost_dataset --manifest data
     --locations-csv data/raw/locations/locations_wheat.csv      # -> data/processed/wofost_wheat_daily.parquet
 ```
 
-`CropTables` turns each row into a feature vector: `latitude, longitude,
-awc, bulk_density` plus every daily series, `fpar` and `ssm` included,
-aggregated into `--bucket-days` buckets (7 = weekly; sums for
-prec/rad/et0/cwb, means otherwise).
+`CropTables` turns each row into CY-Bench's tabular features, the exact
+columns AgML-CY-Bench-Modeling builds for its tabular models
+(`cybench_features.py`, spec in [`docs/cybench_features.md`](../docs/cybench_features.md)):
+the window from the WorldCereal SOS - 60 days to the `--horizon` cutoff
+(default `eos`), 30-day blocks counted back from the cutoff, the benchmark's
+statistics (`tmin_min_0`, `prec_sum_0`, `cum_gdd_max_0`, `fpar_mean_0`, ...),
+then `sos_sin/cos, eos_sin/cos, loc_x/y/z, awc, bulk_density`; without
+`vpd`, `ndvi` and `drainage_class` (not in WOFOST). They are standardised
+with the benchmark's normaliser fitted on the train years, columns with
+> 5% NaN dropped, NaN set to 0. Maize, `eos`: 153 features. The table must
+be built with `process_wofost_dataset.py --align calendar` (the default) from
+a calendar run (`scripts/slurm/run_wofost_cybench.sh`).
+`tests/test_cybench_features.py` checks the features against the
+benchmark's own code (needs `uv pip install -e ../AgML-CY-Bench-Modeling --no-deps`).
+
+In the benchmark, `regressor.py`'s `NanoTabICLRegressor` (`fit(X, y)` /
+`predict(X)`) takes the benchmark's table directly.
 
 Regions (countries) with fewer than `--min-points` (10) points are dropped.
 A training table comes from one region, uses between 10 and all of its
@@ -146,7 +159,7 @@ baseline).
 
 Every cell of a table becomes a 128-dim vector inside the model, and training
 keeps the intermediate results of every block for the backward pass. With
-weekly buckets the tables are wide (346 features for maize, 508 for wheat),
+CY-Bench's features the tables have ~150 columns (maize, `eos`),
 so one 4096-row table alone needs tens of GB. Two switches, neither changes
 the result of a step:
 

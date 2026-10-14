@@ -1,14 +1,17 @@
 """Tables of WOFOST-simulated crop seasons for NanoTabICL.
 
 Input: the processed table from `src/data_pipeline/wofost/process_wofost_dataset.py`
-(`data/processed/wofost_{crop}_daily.parquet`): one row per location x
-sowing year x jitter, with static features, daily weather/crop columns
-(`{feature}_d{day:03d}`) and the yield.
+(`data/processed/wofost_{crop}_daily.parquet`, `--align calendar`): one row
+per location x sowing year x jitter, with static features, daily
+weather/crop columns (`{feature}_d{day:03d}`) over CY-Bench's window and the
+yield.
 
-Each row becomes one feature vector: the static features plus the daily
-series aggregated into fixed buckets (`bucket_days`, e.g. 7 = weekly), with
-sums for fluxes (precipitation, radiation, ET0, water balance) and means
-for states (temperatures, fpar, soil moisture).
+Each row becomes one feature vector: CY-Bench's tabular features
+(`cybench_features.py`: 30-day blocks counted back from the horizon's
+cutoff, the benchmark's statistics, column names and order), standardised
+with the benchmark's normaliser fitted on the train years, columns with
+more than 5% NaN dropped, remaining NaN set to 0 (= the variable's mean).
+The benchmark side (`NanoTabICLRegressor`) fills NaN the same way.
 
 Regions (countries) with fewer than `min_points` points are dropped. A
 training table always comes from one region and uses one jitter run per
@@ -33,7 +36,6 @@ evaluation is walk-forward (T = a val/test year, context = every earlier
 year of the region's points).
 """
 
-import warnings
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
@@ -41,8 +43,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-STATIC_FEATURES = ["latitude", "longitude", "awc", "bulk_density"]
-SUM_FEATURES = {"prec", "rad", "et0", "cwb"}  # fluxes: summed per bucket; everything else: mean
+from nanotabicl.cybench_features import MAX_COLUMN_NAN_RATE, apply_normalizer, cybench_features, fit_normalizer
 
 
 @dataclass
@@ -50,8 +51,7 @@ class CropTableConfig:
     train_years: Sequence[int] = (2005, 2016)
     countries: Optional[Sequence[str]] = None  # None = every country in the table
     target: str = "yield_t_per_ha"
-    bucket_days: int = 7
-    daily_features: Optional[Sequence[str]] = None  # None = every daily feature in the table (incl. fpar, ssm)
+    horizon: str = "eos"  # CY-Bench's end_of_sequence: eos | middle-of-season | quarter-of-season | early-season | eos-N
     episodes: str = "structured"  # "structured" | "random"
     min_points: int = 10  # also: regions with fewer points are dropped
     max_points: Optional[int] = None  # None = up to all of a region's points
@@ -96,21 +96,14 @@ class CropTables:
 
     def _features(self, df: pd.DataFrame) -> tuple:
         cfg = self.config
-        daily = sorted({c.rsplit("_d", 1)[0] for c in df.columns if "_d" in c and c.rsplit("_d", 1)[1].isdigit()})
-        daily = [f for f in daily if cfg.daily_features is None or f in cfg.daily_features]
-        blocks, names = [df[STATIC_FEATURES].to_numpy(np.float32)], list(STATIC_FEATURES)
-        for f in daily:
-            cols = sorted([c for c in df.columns if c.startswith(f"{f}_d") and c[len(f) + 2:].isdigit()])
-            values = df[cols].to_numpy(np.float32)
-            n = values.shape[1] // cfg.bucket_days
-            buckets = values[:, : n * cfg.bucket_days].reshape(len(df), n, cfg.bucket_days)
-            with warnings.catch_warnings():  # all-NaN buckets (e.g. soil moisture outside the season)
-                warnings.simplefilter("ignore", RuntimeWarning)
-                agg = np.nansum(buckets, axis=2) if f in SUM_FEATURES else np.nanmean(buckets, axis=2)
-            blocks.append(agg)
-            names += [f"{f}_b{k:02d}" for k in range(n)]
-        features = np.concatenate(blocks, axis=1)
-        return np.nan_to_num(features, nan=0.0), names  # e.g. soil moisture outside the season
+        raw, names = cybench_features(df, horizon=cfg.horizon, drop_sparse=False)
+        # as the benchmark: normalise (stats pooled over all blocks), then drop sparse columns
+        train = df["sowing_year"].between(cfg.train_years[0], cfg.train_years[1]).to_numpy()
+        self.normalizer = fit_normalizer(raw, names, rows=train)
+        features = apply_normalizer(raw, names, self.normalizer)
+        keep = np.isnan(raw).mean(axis=0) <= MAX_COLUMN_NAN_RATE
+        names = [n for n, k in zip(names, keep) if k]
+        return np.nan_to_num(features[:, keep], nan=0.0), names
 
     # ----- training batches -------------------------------------------------------------
 

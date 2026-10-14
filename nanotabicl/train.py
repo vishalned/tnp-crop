@@ -161,7 +161,7 @@ def main():
     p.add_argument("--prior-fraction", type=float, default=0.5, help="share of prior batches with --data mix")
     p.add_argument("--table", default=None, help="processed WOFOST table (process_wofost_dataset.py output)")
     p.add_argument("--target", default="yield_t_per_ha")
-    p.add_argument("--bucket-days", type=int, default=7, help="weather aggregation: 7 = weekly, 10 = dekadal")
+    p.add_argument("--horizon", default="eos", help="CY-Bench forecast horizon (end_of_sequence): eos | middle-of-season | ...")
     p.add_argument("--train-years", type=int, nargs=2, default=[2005, 2016])
     p.add_argument("--val-years", type=int, nargs="+", default=[2017, 2018])
     p.add_argument("--crop-episodes", default="structured", choices=["structured", "random"],
@@ -210,7 +210,7 @@ def main():
     crop = None
     if args.table:
         crop = CropTables(args.table, CropTableConfig(
-            train_years=args.train_years, target=args.target, bucket_days=args.bucket_days,
+            train_years=args.train_years, target=args.target, horizon=args.horizon,
             episodes=args.crop_episodes, min_points=args.min_points, max_points=args.max_points, max_rows=args.max_rows,
             min_context_years=args.min_context_years, max_context_years=args.max_context_years))
         sizes = {c: len(p) for c, p in crop.country_points.items()}

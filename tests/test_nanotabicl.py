@@ -1,5 +1,7 @@
 """Tests for nanotabicl/: checkpoint conversion, crop tables, loss, a training step."""
 
+import datetime
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -11,27 +13,42 @@ from nanotabicl.model import NanoTabICLv2
 from nanotabicl.train import checkpoint_activations, evaluate_walk_forward, forward_quantiles, pinball_loss, train_step
 
 
+SOS, EOS = 100, 170  # small crop calendar: window [SOS - 60, EOS] = 131 days = 5 blocks of 30 days
+DAILY = ["tmin", "tmax", "tavg", "prec", "rad", "et0", "cwb", "fpar", "ssm", "rsm"]
+
+
+def calendar_table(regions, seed=0, years=range(2005, 2021), jitters=3):
+    """A small processed table in process_wofost_dataset.py's (calendar) layout."""
+    rng = np.random.default_rng(seed)
+    n_days = EOS - (SOS - 60) + 1
+    rows = []
+    for loc, country in enumerate(regions):
+        lat, lon, awc = rng.uniform(47, 54), rng.uniform(0, 10), rng.uniform(15, 30)
+        for year in years:
+            rain = rng.uniform(0, 6, n_days)
+            start = datetime.date(year, 1, 1) + datetime.timedelta(days=SOS - 1 - 60)
+            for jitter in range(jitters):
+                tavg = 12 + 8 * np.sin(np.arange(n_days) / 40) + rng.normal(0, 2, n_days)
+                row = {"location_index": loc, "location_id": f"{lon}_{lat}", "country": country, "crop": "maize",
+                       "year": year, "sowing_year": year, "jitter_index": jitter, "latitude": lat, "longitude": lon,
+                       "awc": awc, "bulk_density": 1.3, "sos_doy": SOS, "eos_doy": EOS, "reached_maturity": True,
+                       "window_start": start.isoformat(),
+                       "yield_t_per_ha": 5 + 0.2 * awc + rain.mean() + rng.normal(0, 0.2)}
+                daily = {"tavg": tavg, "tmin": tavg - 5, "tmax": tavg + 5, "prec": rain, "rad": rng.uniform(5e6, 2e7, n_days),
+                         "et0": rng.uniform(1, 4, n_days), "fpar": np.clip(np.arange(n_days) - 60, 0, 90) * 1.0,
+                         "ssm": rng.uniform(20, 40, n_days), "rsm": rng.uniform(250, 400, n_days)}
+                daily["cwb"] = daily["prec"] - daily["et0"]
+                for name in DAILY:
+                    row.update({f"{name}_d{d:03d}": v for d, v in enumerate(daily[name])})
+                rows.append(row)
+    return pd.DataFrame(rows)
+
+
 @pytest.fixture(scope="module")
 def table_path(tmp_path_factory):
-    """A small processed table in process_wofost_dataset.py's layout."""
-    rng = np.random.default_rng(0)
-    rows = []
     regions = ["France"] * 12 + ["Germany"] * 11 + ["Belgium"] * 4  # Belgium: < 10 points, dropped
-    for loc, country in enumerate(regions):
-        lat, lon, awc = rng.uniform(47, 54), rng.uniform(0, 10), rng.uniform(0.15, 0.3)
-        for year in range(2005, 2021):
-            rain = rng.uniform(1, 3, 70)
-            for jitter in range(3):
-                row = {"location_index": loc, "location_id": f"{lon}_{lat}", "country": country, "crop": "wheat",
-                       "year": year + 1, "sowing_year": year, "jitter_index": jitter, "latitude": lat, "longitude": lon,
-                       "awc": awc, "bulk_density": 1.3, "reached_maturity": True,
-                       "yield_t_per_ha": 5 + 20 * awc + rain.mean() + rng.normal(0, 0.2)}
-                row.update({f"prec_d{d:03d}": rain[d] for d in range(70)})
-                row.update({f"tmax_d{d:03d}": 15 + rng.normal() for d in range(70)})
-                row.update({f"ssm_d{d:03d}": (0.3 if d < 50 else np.nan) for d in range(70)})
-                rows.append(row)
-    path = tmp_path_factory.mktemp("table") / "wofost_wheat_daily.parquet"
-    pd.DataFrame(rows).to_parquet(path, index=False)
+    path = tmp_path_factory.mktemp("table") / "wofost_maize_daily.parquet"
+    calendar_table(regions).to_parquet(path, index=False)
     return str(path)
 
 
@@ -75,14 +92,16 @@ def test_official_checkpoint_conversion_is_exact():
         assert torch.allclose(official._train_forward(x, y), nano(x, y), atol=1e-10)
 
 
-def test_features_are_aggregated_and_finite(tables):
-    assert np.isfinite(tables.features).all()  # NaN soil moisture outside the season filled
+def test_features_are_cybench_columns_and_finite(tables):
+    assert np.isfinite(tables.features).all()
     names = tables.feature_names
-    assert names[:4] == ["latitude", "longitude", "awc", "bulk_density"]
-    assert sum(n.startswith("prec_b") for n in names) == 70 // 7
-    # precipitation is summed per bucket, temperature averaged
-    i = names.index("prec_b00")
-    assert tables.features[0, i] == pytest.approx(tables.df.loc[0, [f"prec_d{d:03d}" for d in range(7)]].sum(), rel=1e-5)
+    assert names[:2] == ["cum_cwb_mean_0", "cum_cwb_mean_1"] and names[-9:] == [
+        "sos_sin", "sos_cos", "eos_sin", "eos_cos", "loc_x", "loc_y", "loc_z", "awc", "bulk_density"]
+    assert len(names) == (12 + 2 + 2) * 5 + 9  # 16 aggregated variables x 5 blocks + statics
+    # standardised with the train years' mean/std per variable (pooled over blocks)
+    train = tables.df["sowing_year"].between(2005, 2016).to_numpy()
+    prec = tables.features[train][:, [n.startswith("prec_sum_") for n in names]]
+    assert prec.mean() == pytest.approx(0, abs=1e-4) and prec.std(ddof=1) == pytest.approx(1, rel=1e-3)
 
 
 def test_small_regions_are_dropped(tables):
@@ -204,3 +223,23 @@ def test_activation_checkpointing_stores_less():
     plain = saved_bytes(model)
     checkpoint_activations(model)
     assert saved_bytes(model) < plain / 3
+
+
+def test_regressor_matches_training_predictions_and_query_batching(tmp_path):
+    from nanotabicl.regressor import NanoTabICLRegressor
+
+    model = tiny_model()
+    config = dict(max_classes=0, out_dim=19, embed_dim=16, col_num_blocks=1, row_num_blocks=1, icl_num_blocks=1,
+                  col_nhead=2, row_nhead=2, icl_nhead=2, n_cls_rows=8)
+    path = tmp_path / "tiny.pt"
+    torch.save({"model_config": config, "state_dict": model.state_dict()}, path)
+    rng = np.random.default_rng(0)
+    x, y = rng.normal(size=(60, 5)).astype(np.float32), rng.normal(size=60).astype(np.float32)
+    x[3, 2] = np.nan  # NaN -> 0, as in training
+    reg = NanoTabICLRegressor(checkpoint=str(path), device="cpu").fit(x[:40], y[:40])
+    pred = reg.predict(x[40:])
+    batched = NanoTabICLRegressor(checkpoint=str(path), device="cpu", query_batch_size=3).fit(x[:40], y[:40]).predict(x[40:])
+    np.testing.assert_allclose(pred, batched, rtol=1e-4, atol=1e-5)  # queries only attend to the context
+    xt = torch.from_numpy(np.nan_to_num(x))[None]
+    quantiles, _, mean, std = forward_quantiles(model.eval(), xt, torch.from_numpy(y)[None], 40, "cpu")
+    np.testing.assert_allclose(pred, (quantiles.mean(-1) * std + mean)[0].detach().numpy(), rtol=1e-4, atol=1e-5)

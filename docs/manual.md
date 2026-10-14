@@ -113,24 +113,32 @@ The column-by-column description of the files is in
 
 [`run_wofost_simulation.py`](../src/data_pipeline/wofost/run_wofost_simulation.py) — `generate_wofost_episode`
 
-1. **Sowing date** = 1 January of the sowing year + `default_sowing_doy()[crop]`
-   − 1 + offset (`agromanagement.sowing_date_from_offset`).
+1. **Sowing date** = 1 January of the sowing year + season start − 1 +
+   offset (`agromanagement.sowing_date_from_offset`). The season start is the
+   location's WorldCereal SOS (`sos_doy` in the locations CSV, passed by the
+   batch runner), else `default_sowing_doy()[crop]`.
 2. **Soil** — `generate_gee_soil_file.generate_soil_data_for_wofost` ([§3.3](#33-soil)).
-3. **Weather** from sowing to sowing + max duration —
-   `gee_weather.get_gee_weather_provider_for_location` ([§3.4](#34-weather)).
+3. **Weather** for the campaign, from season start − 60 days
+   (`default_pre_season_days()`, CY-Bench's `sos-60`) to max(EOS, sowing +
+   max duration) + 1 day — `gee_weather.get_gee_weather_provider_for_location`
+   ([§3.4](#34-weather)).
 4. **Parameters** — `pcse_runner.build_parameter_provider`: crop parameters
    (YAML), the soil profile, site parameters.
-5. **Agromanagement** — `agromanagement.build_agromanagement`: one campaign,
-   start = sowing, end = maturity, `max_duration` cap, **no events** (no
-   fertiliser, no irrigation).
-6. **Run** — `pcse_runner.run_wofost`: PCSE's engine runs day by day until
-   maturity (DVS = 2) or the max duration; per-layer outputs (e.g. soil
-   moisture per layer) are flattened into `SM_layer0…` columns.
+5. **Agromanagement** — `agromanagement.build_agromanagement`: one campaign
+   starting at season start − 60 days, crop from the sowing date to maturity
+   (`max_duration` cap), **no events** (no fertiliser, no irrigation), and a
+   trailing empty campaign at the end date above.
+6. **Run** — `pcse_runner.run_wofost`: PCSE's engine runs day by day over the
+   whole campaign. The multi-layer soil water balance runs on bare soil
+   before sowing and after maturity; the crop runs from sowing to maturity
+   (DVS = 2) or the max duration, its columns are empty outside that.
+   Per-layer outputs (soil moisture `SM`, water content `WC`) are flattened
+   into `SM_layer0…`, `WC_layer0…` columns.
 7. **Derived features** — `pcse_runner.merge_weather_and_derive_features`
    joins the daily weather and adds:
    - `cwb = RAIN − ET0` (climatic water balance),
    - `fpar = 1 − exp(−k(DVS) · LAI)` with `k` from the crop's `KDIFTB`
-     table (fraction of light absorbed by the canopy),
+     table (fraction of light absorbed by the canopy), 0 when there is no crop,
    - `ssm = SM_layer0` (simulated moisture of the top 0–5 cm layer, the
      closest match to CYBench's satellite surface soil moisture).
 8. **Save** the daily trajectory CSV and a summary JSON (yield = `TWSO`,
@@ -233,33 +241,34 @@ other's manifest.
 
 - Reads the manifest, keeps `status == "success"`, and for each season reads
   its daily CSV plus the location's weather cache.
-- **Fixed daily window**, so every row of a crop has the same columns
-  (`--align`, `--pre-season-days`):
-  - anchor = the crop's nominal season start that year (`season_start`,
-    default) or the actual sowing date (`sowing`);
-  - day 0 = anchor − 30 days, so an earlier jittered sowing and some
-    pre-season weather are inside the window;
-  - length = 30 + max duration days: **270 days for maize, 395 for wheat**.
-- **Daily columns** `{feature}_d{day:03d}`, for 9 features
-  (`default_timeseries_features`):
+- **Daily window** (`--align calendar`, default): CY-Bench's feature
+  window, from the row's crop calendar: day 0 = SOS − 60 days, last day =
+  EOS (`calendar_window`). Every row of a crop has the longest window's
+  number of columns (maize: 268 days); a row is NaN after its own EOS.
+  (`--align season_start` / `sowing`: the older fixed windows anchored on the
+  placeholder season start / the sowing date.)
+- **Daily columns** `{feature}_d{day:03d}`, for 10 features
+  (`default_timeseries_features`), in CY-Bench's units:
 
   | feature | source | unit |
   |---|---|---|
   | `tmin`, `tmax`, `tavg` | weather | °C |
   | `prec` | weather | mm/day |
-  | `rad` | weather | MJ/m²/day |
+  | `rad` | weather | J/m²/day |
   | `et0` | weather | mm/day |
   | `cwb` = prec − et0 | weather | mm/day |
-  | `fpar` | WOFOST | fraction; **0** outside the crop's life (bare field) |
-  | `ssm` | WOFOST | cm³/cm³; **NaN** outside the crop's life (not simulated) |
+  | `fpar` | WOFOST | %; **0** outside the crop's life (bare field) |
+  | `ssm` | WOFOST `WC` layers | kg/m², 0–10 cm (`soil_moisture_columns`) |
+  | `rsm` | WOFOST `WC` layers | kg/m², 0–100 cm |
 
   Weather covers the whole window (it comes from the weather cache, not the
   episode), so it's complete even before sowing and after maturity.
 - **Per-row values:** ids (`sample_id, location_index, location_id, country,
   crop`), `year` = **harvest year** (CYBench's convention; winter wheat sown
   Oct 2013 → 2014), `sowing_year`, `jitter_index`, statics (`latitude,
-  longitude, awc, bulk_density, sos_doy, sowing_doy`), metadata
-  (`sowing_date, maturity_date, season_length_days, reached_maturity, …`),
+  longitude, awc` (cm/m), `bulk_density, sos_doy, eos_doy, sowing_doy`), metadata
+  (`sowing_date, maturity_date, season_length_days, reached_maturity,
+  window_start, window_end, …`),
   targets `yield_kg_per_ha` and `yield_t_per_ha`.
 - `--locations-csv` adds `country` (joined on `location_index`).
 - **Output** (`--format parquet` default):
@@ -292,15 +301,22 @@ other's manifest.
 On loading the processed table:
 
 1. Drops seasons that **didn't reach maturity** and rows with a missing target.
-2. Builds **one feature vector per row**:
-   - 4 statics: `latitude, longitude, awc, bulk_density` (`STATIC_FEATURES`;
-     `sos_doy` is a constant per crop and `sowing_doy` isn't in CYBench, so
-     both are left out);
-   - every daily feature, aggregated into `--bucket-days` buckets
-     (7 = weekly): **sums** for `prec, rad, et0, cwb` (`SUM_FEATURES`),
-     **means** for the rest. Leftover days that don't fill a bucket are
-     dropped. Remaining NaNs (soil moisture outside the season) → 0.
-   - Weekly: maize 4 + 9 × 38 = **346 features**, wheat 4 + 9 × 56 = **508**.
+2. Builds **one feature vector per row: CY-Bench's tabular features**
+   ([`cybench_features.py`](../nanotabicl/cybench_features.py), spec in
+   [`cybench_features.md`](cybench_features.md)), the exact columns
+   AgML-CY-Bench-Modeling builds for its tabular models:
+   - window SOS − 60 days → the `--horizon` cutoff (`eos` default), cut into
+     30-day blocks counted back from the cutoff (block 0 = the last 30 days);
+   - per block: `tmin_min, tmax_max, tavg_mean, prec_sum, prec_max, rad_mean,
+     et0_mean, cwb_mean, gdd_sum, cum_gdd_max, cum_prec_max, cum_cwb_mean`
+     (meteo), `fpar_mean, cum_fpar_max` (dekad dates only), `ssm_mean,
+     rsm_mean`; columns `<name>_<block>`, sorted by name then block, per source;
+   - statics `sos_sin, sos_cos, eos_sin, eos_cos, loc_x, loc_y, loc_z, awc,
+     bulk_density`;
+   - `vpd`, `ndvi`, `drainage_class` left out (not in WOFOST);
+   - standardised with the benchmark's normaliser fitted on the train years
+     (per variable, pooled over blocks), columns with > 5 % NaN dropped, NaN → 0.
+   - Maize, `eos`: (12 + 2 + 2) × 9 + 9 = **153 features**.
 3. Keeps `y` (target), `point` (= `location_index`) and `year`
    (= **sowing year**) per row, and an index `cells[(point, year)]` → the
    row(s) of that point and year (one per jitter).
@@ -423,8 +439,8 @@ quantiles [B, R - n_train, 999]
   and `tmax_b11` are consecutive weeks; apart from the RoPE position (column
   order), the temporal structure is invisible.
 - **Pretraining range:** the official model was pretrained on tables with
-  1–100 features and up to 60k rows ([§10](#10-checkpoints)); our 346 / 508
-  weekly features are far beyond that.
+  1–100 features and up to 60k rows ([§10](#10-checkpoints)); our 153 (maize, `eos`)
+  CY-Bench features are beyond that.
 - **Targets are standardised per table** (by the training/eval code, §13),
   so the model always predicts on a comparable scale.
 
@@ -651,15 +667,17 @@ sbatch scripts/slurm/run_gpu.sh
 
 ## 16. Known simplifications and open points
 
-- **Sowing date:** one fixed day of year per crop for all locations; the
-  WorldCereal per-location season start is extracted but unused
-  (`default_sowing_doy`).
+- **Sowing date:** the location's WorldCereal SOS ± 10 days; the calendar is a
+  coarse map (3 distinct maize calendars over the 10,000 points).
+- **Features WOFOST doesn't have** (`vpd`, `ndvi`, `drainage_class`) are left
+  out, so the benchmark comparison must leave them out too; WOFOST `fpar` is
+  the crop canopy only (0 before sowing), satellite FPAR is the whole pixel.
 - **One variety per crop**, constant CO₂, fixed initial soil water, no
   groundwater, no nutrients, no management.
 - **Rooting depth** clamped to a soil-layer boundary.
 - **Regions = countries:** points in a table can be far apart; countries
   with < 10 points are dropped.
-- **Many features** (346 / 508 weekly) vs the model's pretraining range of
+- **Many features** (153 for maize `eos`) vs the model's pretraining range of
   ≤ 100; each cell is a token, so memory and compute grow with the feature
   count.
 - **Evaluation** has no preprocessing ensembles, so official zero-shot numbers
