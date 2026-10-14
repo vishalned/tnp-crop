@@ -13,7 +13,8 @@ echo "Job started at:  $(date)"
 start_ts=$(date +%s)
 
 # Settings via environment variables, e.g. a smoke run:
-#   STEPS=50 RUN=smoke_maize_structured sbatch scripts/slurm/run_gpu.sh
+#   sbatch --export=ALL,STEPS=50,RUN=smoke_maize_structured scripts/slurm/run_gpu.sh
+# (on Snellius `STEPS=50 sbatch ...` does NOT reach the job; use --export)
 cd /home/vnedungadi/tnp-crop
 MODE=${MODE:-structured}  # structured | random
 STEPS=${STEPS:-5000}
