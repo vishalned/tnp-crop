@@ -31,8 +31,10 @@ EXCLUDE_FEATURES = ["vpd", "ndvi", "drainage_class"]
 
 
 def benchmark_feature_table(cybench_data: str, crop: str, country: str, horizon: str = "eos",
-                            benchmark_dir: str = None) -> pd.DataFrame:
-    """CY-Bench's raw feature table for one crop/country, built by the benchmark's DataFactory."""
+                            benchmark_dir: str = None, filter_samples=None, return_y: bool = False):
+    """CY-Bench's raw feature table for one crop/country, built by the benchmark's DataFactory
+    (and its yields, `return_y`; `filter_samples=["flag_yield_outlier"]` drops flagged yields as the
+    benchmark runs do, needs the yield_quality files)."""
     from omegaconf import OmegaConf
 
     import cybench
@@ -51,10 +53,11 @@ def benchmark_feature_table(cybench_data: str, crop: str, country: str, horizon:
         "use_memory_optimization": False,
         "temporal": temporal, "non_temporal": load("non_temporal", "geometric_transform.yaml"),
         "exclude_features": EXCLUDE_FEATURES,  # needs the benchmark's tabicl-wofost branch
-        "target": {"name": "yield", "filter_samples": None},  # yield filtering doesn't change the columns
+        "target": {"name": "yield", "filter_samples": filter_samples},  # filtering doesn't change the columns
     })
     data_factory.PATH_DATA_DIR = cybench_data
-    return data_factory.DataFactory(cfg).build().x
+    dataset = data_factory.DataFactory(cfg).build()
+    return (dataset.x, dataset.y["yield"]) if return_y else dataset.x
 
 
 def compare(wofost: pd.DataFrame, cybench: pd.DataFrame) -> pd.DataFrame:
