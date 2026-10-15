@@ -69,7 +69,8 @@ TNP side: `python src/train.py experiment=tnp_synthetic` (Hydra overrides as usu
 ## Conventions
 
 - `nanotabicl/model.py` and `nanotabicl/prior.py` are vendored unchanged from soda-inria/nanotabicl @ `4a7f9c7` (BSD-3). Don't edit them; put changes in our own files (`checkpoint.py`, `crop_tables.py`, `prior_tables.py`, `train.py`, `evaluate.py`).
-- `checkpoint.py`'s conversion of the official TabICLv2 weights is verified to be exact; keep it that way.
+- `checkpoint.py`'s conversion of the official TabICLv2 weights is verified to be exact (all weights randomised, real grouping settings; `NanoTabICL` with `official_feature_grouping` fixes the vendored model's off-by-one column grouping); keep it that way.
+- `NanoTabICLRegressor(n_estimators=k)` = TabICL's test-time ensemble (`ensemble.py`), tested equal to `TabICLRegressor(n_estimators=k)`; compare against default TabICL with `n_estimators=8`.
 - On the HPC cluster, run heavy jobs through SLURM (`scripts/slurm/`), not on login nodes; logs go to `slurm_logs/`.
 - **Do not run heavy computations on the login node.** For heavy things (training, simulations, dataset processing, audits, test suites with real data) either submit a SLURM job yourself (`sbatch`, CPU: like `scripts/slurm/run_cpu.sh`, GPU: `run_gpu.sh`) and read its log in `slurm_logs/`, or ask the user to run it with `srun`.
 - Home (`/gpfs/home2`) is nearly full (quota and inodes): write large outputs (simulations, processed tables) to `/projects/prjs1788/tnp-crop/`.

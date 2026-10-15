@@ -9,6 +9,14 @@ with different parameter names, so conversion is a key rename plus two
 reshapes. Verified against `tabicl._model.tabicl.TabICL._train_forward`:
 identical outputs in float64 (`tests/test_nanotabicl.py`).
 
+One difference in the vendored `model.py`: its feature grouping takes columns
+at offsets 0, 1, 3 (`(idx + 2**i - 1) % H`), the official one at 1, 2, 4
+(`(idx + 2**i) % H`) -- the same groups, one column further. `NanoTabICL`
+(below) rolls the input columns by one when `official_feature_grouping` is
+set, which makes the groups exactly the official ones. The official
+conversion sets it; checkpoints saved without it (trained before this was
+found) keep the vendored grouping they were trained with.
+
 The regression checkpoint uses LayerNorm without bias; NanoTabICLv2's
 LayerNorms have a bias, which is set to zero (identical function) and then
 trains like any other parameter.
@@ -21,6 +29,19 @@ from typing import Optional
 import torch
 
 from nanotabicl.model import NanoTabICLv2
+
+
+class NanoTabICL(NanoTabICLv2):
+    """NanoTabICLv2 (unchanged, vendored) plus the official TabICL feature grouping as an option."""
+
+    def __init__(self, official_feature_grouping: bool = False, **config):
+        super().__init__(**config)
+        self.official_feature_grouping = official_feature_grouping
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        if self.official_feature_grouping:
+            x = torch.roll(x, shifts=-1, dims=-1)  # groups at offsets 0,1,3 of x' = offsets 1,2,4 of x
+        return super().forward(x, y)
 
 HF_REPO = "jingang/TabICL"
 OFFICIAL_REGRESSOR = "tabicl-regressor-v2-20260212.ckpt"
@@ -61,6 +82,7 @@ def nano_config_from_official(config: dict) -> dict:
         feature_group_size=config.get("col_feature_group_size", 3),
         n_cls_cols=config.get("row_num_cls", 4),
         n_cls_rows=config.get("col_num_inds", 128),
+        official_feature_grouping=True,
     )
 
 
@@ -88,7 +110,11 @@ _RENAMES = [
 def convert_official_state_dict(state_dict: dict) -> dict:
     out = {}
     for key, value in state_dict.items():
-        if key.endswith("rope.freqs"):  # NanoTabICLv2 recomputes the (identical) RoPE frequencies
+        if key.endswith("rope.freqs"):  # NanoTabICLv2 recomputes the RoPE frequencies: check they're the standard ones
+            half = value.numel()
+            standard = 1.0 / (100_000.0 ** (torch.arange(0, 2 * half, 2, dtype=torch.float64) / (2 * half)))
+            if not torch.allclose(value.double(), standard, rtol=1e-5):
+                raise ValueError(f"{key} differs from the standard RoPE frequencies NanoTabICLv2 uses.")
             continue
         name = key
         for pattern, repl in _RENAMES:
@@ -104,7 +130,7 @@ def convert_official_state_dict(state_dict: dict) -> dict:
 def load_official(path: str) -> NanoTabICLv2:
     """NanoTabICLv2 initialized from an official TabICLv2 checkpoint file."""
     ckpt = torch.load(path, map_location="cpu", weights_only=True)
-    model = NanoTabICLv2(**nano_config_from_official(ckpt["config"]))
+    model = NanoTabICL(**nano_config_from_official(ckpt["config"]))
     missing, unexpected = model.load_state_dict(convert_official_state_dict(ckpt["state_dict"]), strict=False)
     # only the LayerNorm biases may be absent (bias-free LN in the regression checkpoint; they init to zero)
     bad_missing = [k for k in missing if not (k.endswith(".bias") and ("ln" in k.split(".")[-2]))]
@@ -121,7 +147,7 @@ def save(path: str, model: NanoTabICLv2, model_config: dict, **extra) -> None:
 def load(path: str) -> tuple:
     """(model, checkpoint dict) from a checkpoint written by `save`."""
     ckpt = torch.load(path, map_location="cpu", weights_only=False)
-    model = NanoTabICLv2(**ckpt["model_config"])
+    model = NanoTabICL(**ckpt["model_config"])
     model.load_state_dict(ckpt["state_dict"])
     return model, ckpt
 
@@ -137,10 +163,10 @@ def build_model(init: str, size: str = "small", cache_dir: Optional[str] = None)
         init = download_official(cache_dir=cache_dir)
     if init == "scratch":
         config = dict(SIZES[size])
-        return NanoTabICLv2(**config), config
+        return NanoTabICL(**config), config
     ckpt = torch.load(init, map_location="cpu", weights_only=False)
     if "model_config" in ckpt:
-        model = NanoTabICLv2(**ckpt["model_config"])
+        model = NanoTabICL(**ckpt["model_config"])
         model.load_state_dict(ckpt["state_dict"])
         return model, ckpt["model_config"]
     return load_official(init), nano_config_from_official(ckpt["config"])

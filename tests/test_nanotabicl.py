@@ -69,27 +69,37 @@ def tiny_model():
 
 
 def test_official_checkpoint_conversion_is_exact():
-    """Converted official TabICL weights give the official model's outputs (float64)."""
+    """Converted official TabICL weights give the official model's outputs (float64).
+
+    The real checkpoint's settings (feature grouping "same", group size 3) and *all* weights randomised:
+    a fresh TabICL has zero row-attention output projections, with which x doesn't reach the output at
+    all and a wrong feature path would go unnoticed."""
     pytest.importorskip("tabicl")
     from tabicl._model.tabicl import TabICL
 
     torch.manual_seed(0)
     config = dict(max_classes=0, num_quantiles=9, embed_dim=32, col_num_blocks=2, row_num_blocks=2, icl_num_blocks=2,
-                  col_nhead=4, row_nhead=4, icl_nhead=4, row_rope_interleaved=False, bias_free_ln=True)
+                  col_nhead=4, row_nhead=4, icl_nhead=4, row_rope_interleaved=False, bias_free_ln=True,
+                  col_feature_group="same", col_feature_group_size=3)
     official = TabICL(**config).double().eval()
-    with torch.no_grad():  # make the zero-initialized parts non-zero so they're tested too
+    with torch.no_grad():
         for name, param in official.named_parameters():
-            if "query_mlp.2" in name:
-                param.normal_(0, 0.1)
-    nano = NanoTabICLv2(**checkpoint.nano_config_from_official(config)).double().eval()
+            if not name.endswith("rope.freqs"):  # a parameter in tabicl, fixed (standard values) in practice
+                param.add_(0.2 * torch.randn_like(param))
+    nano = checkpoint.NanoTabICL(**checkpoint.nano_config_from_official(config)).double().eval()
     missing, unexpected = nano.load_state_dict(checkpoint.convert_official_state_dict(official.state_dict()), strict=False)
     assert not unexpected and all(k.endswith(".bias") for k in missing)
 
-    x = torch.randn(2, 30, 6, dtype=torch.float64)
-    x = (x - x[:, :24].mean(1, keepdim=True)) / x[:, :24].std(1, unbiased=False, keepdim=True)  # nano standardizes inside
-    y = torch.randn(2, 24, dtype=torch.float64)
-    with torch.no_grad():
-        assert torch.allclose(official._train_forward(x, y), nano(x, y), atol=1e-10)
+    for n_rows, n_train, n_cols in [(30, 24, 6), (60, 40, 11)]:
+        x = torch.randn(2, n_rows, n_cols, dtype=torch.float64)
+        x = (x - x[:, :n_train].mean(1, keepdim=True)) / x[:, :n_train].std(1, unbiased=False, keepdim=True)
+        y = torch.randn(2, n_train, dtype=torch.float64)
+        with torch.no_grad():
+            expected = official._train_forward(x, y)
+            assert torch.allclose(expected, nano(x, y), atol=1e-6)
+            nano.official_feature_grouping = False  # the vendored grouping is one column off
+            assert not torch.allclose(expected, nano(x, y), atol=1e-3)
+            nano.official_feature_grouping = True
 
 
 def test_features_are_cybench_columns_and_finite(tables):
@@ -243,3 +253,54 @@ def test_regressor_matches_training_predictions_and_query_batching(tmp_path):
     xt = torch.from_numpy(np.nan_to_num(x))[None]
     quantiles, _, mean, std = forward_quantiles(model.eval(), xt, torch.from_numpy(y)[None], 40, "cpu")
     np.testing.assert_allclose(pred, (quantiles.mean(-1) * std + mean)[0].detach().numpy(), rtol=1e-4, atol=1e-5)
+
+
+def test_ensemble_views_match_tabicl():
+    """Our port of TabICL's test-time ensemble builds the same views as tabicl's EnsembleGenerator."""
+    pytest.importorskip("tabicl")
+    from tabicl._sklearn.preprocessing import EnsembleGenerator
+
+    from nanotabicl.ensemble import Ensemble
+
+    rng = np.random.default_rng(0)
+    x = np.column_stack([rng.normal(size=80), rng.exponential(size=80), rng.normal(size=80) * 100,
+                         np.ones(80), rng.integers(0, 3, 80), rng.normal(size=80)])  # incl. a constant column
+    x[5, 0] = 40.0  # an outlier
+    context, query = x[:60], x[60:]
+    ours = Ensemble(n_estimators=8, random_state=3).fit(context).transform(query)
+    gen = EnsembleGenerator(classification=False, n_estimators=8, norm_methods=["none", "power"],
+                            feat_shuffle_method="latin", outlier_threshold=4.0, random_state=3)
+    gen.fit(context, np.zeros(60))
+    theirs = [(xs[i][:60], xs[i][60:]) for xs, _ in gen.transform(query, mode="both").values() for i in range(len(xs))]
+    assert len(ours) == len(theirs) == 8
+    for (c1, q1), (c2, q2) in zip(ours, theirs):
+        np.testing.assert_allclose(c1, c2, rtol=1e-6, atol=1e-8)
+        np.testing.assert_allclose(q1, q2, rtol=1e-6, atol=1e-8)
+
+
+def _official_weights_cached() -> bool:
+    try:
+        from huggingface_hub import try_to_load_from_cache
+    except ImportError:
+        return False
+    return isinstance(try_to_load_from_cache(checkpoint.HF_REPO, checkpoint.OFFICIAL_REGRESSOR), str)
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not _official_weights_cached(), reason="official TabICLv2 weights not downloaded")
+def test_regressor_ensemble_matches_tabicl_regressor():
+    """NanoTabICLRegressor(n_estimators=8) with the official weights = TabICLRegressor(n_estimators=8)."""
+    pytest.importorskip("tabicl")
+    from tabicl import TabICLRegressor
+
+    from nanotabicl.regressor import NanoTabICLRegressor
+
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=(120, 6)).astype(np.float32)
+    x[:, 1] = np.exp(x[:, 1])  # skewed, so the power transform matters
+    y = (2 * x[:, 0] + np.log(x[:, 1]) + rng.normal(0, 0.1, 120)).astype(np.float32)
+    ours = NanoTabICLRegressor(checkpoint="official", device="cpu", n_estimators=8, random_state=0)
+    pred = ours.fit(x[:100], y[:100]).predict(x[100:])
+    official = TabICLRegressor(n_estimators=8, random_state=0, device="cpu", use_amp=False, use_fa3=False)
+    raw = official.fit(x[:100], y[:100]).predict(x[100:], output_type="raw_quantiles")
+    np.testing.assert_allclose(pred, raw.mean(-1), rtol=1e-3, atol=1e-3)
