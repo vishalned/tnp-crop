@@ -4,6 +4,10 @@ Every table of a batch shares its number of rows, features and context rows
 (so the batch is one tensor); each table is an independent prior draw. The
 prior filters out unlearnable datasets with an ExtraTrees check, which makes
 generation CPU-bound: run it in DataLoader workers (`num_workers`).
+
+`PriorTables`: random shapes (TabICL-style). `MatchedPriorTables`: the control
+for crop training (`train.py --data prior-matched`), prior tables with exactly
+the crop run's table shapes and context/query split, step by step.
 """
 
 import numpy as np
@@ -42,6 +46,43 @@ class PriorTables(IterableDataset):
             n_train = int(n_rows * np.random.uniform(*self.train_fraction))
             tables = [sample_table(n_rows, n_features) for _ in range(self.batch_size)]
             yield {"x": torch.stack([t[0] for t in tables]), "y": torch.stack([t[1] for t in tables]), "n_train": n_train}
+
+
+class MatchedPriorTables(IterableDataset):
+    """Control for training on crop tables: prior tables with the crop batches' shapes.
+
+    `shapes[k]` = (n_rows, n_features, n_train) of the crop run's k-th batch (`crop_batch_shapes`),
+    so step k gets prior tables with the same number of rows, features and context rows (first
+    `n_train` rows = context, as in the crop batches). Each column is standardised over its table's
+    rows, the counterpart of the crop features' normaliser (fitted on all train rows). With DataLoader
+    workers, worker w generates batches w, w + n_workers, ...; the DataLoader returns them in order.
+    """
+
+    def __init__(self, shapes, batch_size: int, seed: int = 0):
+        super().__init__()
+        self.shapes, self.batch_size, self.seed = list(shapes), batch_size, seed
+
+    def __iter__(self):
+        worker = get_worker_info()
+        worker_id, n_workers = (worker.id, worker.num_workers) if worker else (0, 1)
+        np.random.seed((self.seed * 1000 + worker_id) % 2**32)
+        torch.manual_seed(self.seed * 1000 + worker_id)
+        for n_rows, n_features, n_train in self.shapes[worker_id::n_workers]:
+            tables = [sample_table(n_rows, n_features) for _ in range(self.batch_size)]
+            x = torch.stack([t[0] for t in tables])
+            x = (x - x.mean(dim=1, keepdim=True)) / x.std(dim=1, keepdim=True).clamp(min=1e-6)
+            yield {"x": x, "y": torch.stack([t[1] for t in tables]), "n_train": n_train}
+
+
+def crop_batch_shapes(crop, batch_size: int, n_batches: int, seed: int) -> list:
+    """(n_rows, n_features, n_train) of the first `n_batches` batches the crop stream draws with `seed`
+    (`train.CropStream`: the same RNG and calls), i.e. the crop run's table shapes step by step."""
+    rng = np.random.default_rng(seed)
+    shapes = []
+    for _ in range(n_batches):
+        batch = crop.sample_batch(rng, batch_size)
+        shapes.append((batch["x"].shape[1], batch["x"].shape[2], int(batch["n_train"])))
+    return shapes
 
 
 if __name__ == "__main__":

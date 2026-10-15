@@ -6,6 +6,9 @@
     # from scratch, on the TabICLv2 prior and WOFOST tables mixed half/half
     python -m nanotabicl.train --init scratch --size small --data mix --prior-fraction 0.5 --table ...
 
+    # control for a crop run: the same run, but prior tables with the crop batches' shapes
+    python -m nanotabicl.train --init official --data prior-matched --table ... (other settings as the crop run)
+
 Training loop in the style of nanoTabPFN's `train.py`: every step draws one
 batch of tables (crop tables and/or prior tables), standardizes the target
 of each table with its context rows' mean/std (as TabICL's regressor does),
@@ -23,7 +26,16 @@ reports the peak GPU memory.
 
 Every `--eval-every` steps it runs the walk-forward evaluation on the val
 years (see `evaluate.py`) and keeps the checkpoint with the lowest val RMSE.
-Writes `last.pt`, `best.pt`, `config.json` and `log.csv` to `--out-dir`.
+Writes `last.pt`, `best.pt`, `config.json` and `log.csv` to `--out-dir`, plus
+`step<N>.pt` for every N in `--save-steps`. `--stop-at N` ends the run after N
+steps with the learning-rate schedule of `--steps` (so a shorter run sees the
+same learning rates as the first N steps of a longer one).
+
+`--data prior-matched` is the control for `--data crop`: batch k has prior
+tables (`prior_tables.MatchedPriorTables`) with the shape of the crop run's
+batch k (rows, features, context rows; same `--seed`, `--batch-size` and crop
+settings), columns standardised per table. Everything else is unchanged; the
+crop table is still used for the val evaluation.
 """
 
 import argparse
@@ -157,7 +169,8 @@ def main():
     p = argparse.ArgumentParser(description="(Continued) pretraining of NanoTabICLv2 for regression.")
     p.add_argument("--init", default="official", help="official | scratch | path to a checkpoint (ours or official)")
     p.add_argument("--size", default="small", choices=list(checkpoint.SIZES), help="model size for --init scratch")
-    p.add_argument("--data", default="crop", choices=["crop", "prior", "mix"])
+    p.add_argument("--data", default="crop", choices=["crop", "prior", "mix", "prior-matched"],
+                   help="prior-matched: prior tables with the crop batches' shapes (control for --data crop)")
     p.add_argument("--prior-fraction", type=float, default=0.5, help="share of prior batches with --data mix")
     p.add_argument("--table", default=None, help="processed WOFOST table (process_wofost_dataset.py output)")
     p.add_argument("--target", default="yield_t_per_ha")
@@ -173,7 +186,9 @@ def main():
     p.add_argument("--max-context-years", type=int, default=11)
     p.add_argument("--prior-max-rows", type=int, default=1024)
     p.add_argument("--prior-max-features", type=int, default=100)
-    p.add_argument("--steps", type=int, default=10000)
+    p.add_argument("--steps", type=int, default=10000, help="length of the learning-rate schedule (and the run)")
+    p.add_argument("--stop-at", type=int, default=None, help="stop after this many steps (schedule still of --steps)")
+    p.add_argument("--save-steps", type=int, nargs="*", default=[], help="also save step<N>.pt at these steps")
     p.add_argument("--batch-size", type=int, default=8, help="tables per optimizer step")
     p.add_argument("--micro-batch-size", type=int, default=1,
                    help="tables per forward/backward pass; gradients are accumulated over the batch")
@@ -217,7 +232,8 @@ def main():
         print(f"crop table: {len(crop.df)} rows, {crop.features.shape[1]} features, points per region {sizes}"
               + (f", dropped (< {args.min_points} points): {crop.dropped_regions}" if crop.dropped_regions else ""))
     elif args.data != "prior":
-        raise ValueError("--data crop/mix needs --table.")
+        raise ValueError(f"--data {args.data} needs --table.")
+    n_steps = min(args.stop_at or args.steps, args.steps)
 
     streams = {}
     if args.data in ("crop", "mix"):
@@ -227,6 +243,13 @@ def main():
         prior_ds = PriorTables(args.batch_size, max_rows=args.prior_max_rows, max_features=args.prior_max_features, seed=args.seed)
         streams["prior"] = iter(DataLoader(prior_ds, batch_size=None, num_workers=args.num_workers,
                                            persistent_workers=args.num_workers > 0))
+    if args.data == "prior-matched":
+        from nanotabicl.prior_tables import MatchedPriorTables, crop_batch_shapes
+        shapes = crop_batch_shapes(crop, args.batch_size, n_steps, args.seed)
+        print(f"prior tables with the crop batches' shapes: rows {min(s[0] for s in shapes)}-{max(s[0] for s in shapes)}, "
+              f"features {sorted(set(s[1] for s in shapes))}")
+        streams["prior"] = iter(DataLoader(MatchedPriorTables(shapes, args.batch_size, args.seed), batch_size=None,
+                                           num_workers=args.num_workers))
     rng = np.random.default_rng(args.seed)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -237,8 +260,8 @@ def main():
         log = csv.writer(log_file)
         log.writerow(["step", "source", "loss", "lr", "val_rmse", "val_r2", "val_baseline_rmse", "peak_mem_gb",
                       "table_rows", "table_features", "seconds"])
-        for step in range(args.steps):
-            source = "prior" if args.data == "prior" or (args.data == "mix" and rng.random() < args.prior_fraction) else "crop"
+        for step in range(n_steps):
+            source = "prior" if args.data in ("prior", "prior-matched") or (args.data == "mix" and rng.random() < args.prior_fraction) else "crop"
             batch = next(streams[source])
             x, y, n = batch["x"].to(args.device), batch["y"].to(args.device), int(batch["n_train"])
             for group in optimizer.param_groups:
@@ -246,17 +269,20 @@ def main():
             running.append(train_step(model, optimizer, x, y, n, args.device, args.micro_batch_size, args.grad_clip))
 
             val = {}
-            if crop is not None and ((step + 1) % args.eval_every == 0 or step + 1 == args.steps):
+            if crop is not None and ((step + 1) % args.eval_every == 0 or step + 1 == n_steps):
                 val, _ = evaluate_walk_forward(model, crop, args.val_years, args.device)
                 if val and val["rmse"] < best_rmse:
                     best_rmse = val["rmse"]
                     checkpoint.save(os.path.join(args.out_dir, "best.pt"), model, model_config, step=step + 1, val=val, args=vars(args))
                 print(f"step {step + 1}: val rmse {val.get('rmse', float('nan')):.3f} r2 {val.get('r2', float('nan')):.3f} "
                       f"(baseline rmse {val.get('baseline_rmse', float('nan')):.3f})")
+            if step + 1 in args.save_steps:
+                checkpoint.save(os.path.join(args.out_dir, f"step{step + 1}.pt"), model, model_config,
+                                step=step + 1, val=val, args=vars(args))
             if (step + 1) % args.log_every == 0 or val:
                 # peak GPU memory since the last log line (training steps and any evaluation in between)
                 peak = torch.cuda.max_memory_allocated() / 1e9 if cuda else float("nan")
-                print(f"step {step + 1}/{args.steps} | {source} | loss {np.mean(running):.4f} | lr {optimizer.param_groups[0]['lr']:.2e} "
+                print(f"step {step + 1}/{n_steps} | {source} | loss {np.mean(running):.4f} | lr {optimizer.param_groups[0]['lr']:.2e} "
                       f"| table {x.shape[1]} rows x {x.shape[2]} features | peak GPU mem {peak:.1f} GB | {time.time() - t0:.0f}s")
                 log.writerow([step + 1, source, np.mean(running), optimizer.param_groups[0]["lr"], val.get("rmse"),
                               val.get("r2"), val.get("baseline_rmse"), round(peak, 2), x.shape[1], x.shape[2],
@@ -265,7 +291,7 @@ def main():
                 running = []
                 if cuda:
                     torch.cuda.reset_peak_memory_stats()
-    checkpoint.save(os.path.join(args.out_dir, "last.pt"), model, model_config, step=args.steps, args=vars(args))
+    checkpoint.save(os.path.join(args.out_dir, "last.pt"), model, model_config, step=n_steps, args=vars(args))
     print(f"done; checkpoints in {args.out_dir}")
 
 

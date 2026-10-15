@@ -194,6 +194,23 @@ def test_training_step_and_evaluation(tables):
     assert len(preds) == 23 and np.isfinite(metrics["rmse"])  # France + Germany points at 2019
 
 
+def test_matched_prior_tables_have_the_crop_batches_shapes(tables):
+    from torch.utils.data import DataLoader
+
+    from nanotabicl.prior_tables import MatchedPriorTables, crop_batch_shapes
+    from nanotabicl.train import CropStream
+
+    shapes = crop_batch_shapes(tables, batch_size=2, n_batches=3, seed=5)
+    crop = iter(CropStream(tables, batch_size=2, seed=5))  # what `--data crop` trains on, step by step
+    assert shapes == [(b["x"].shape[1], b["x"].shape[2], b["n_train"]) for b in (next(crop) for _ in shapes)]
+    batches = list(DataLoader(MatchedPriorTables(shapes, batch_size=2, seed=0), batch_size=None, num_workers=2))
+    assert [(b["x"].shape[1], b["x"].shape[2], b["n_train"]) for b in batches] == shapes  # in order across workers
+    for b in batches:
+        assert b["x"].shape[0] == b["y"].shape[0] == 2 and b["y"].shape[1] == b["x"].shape[1]
+        assert torch.isfinite(b["x"]).all() and torch.isfinite(b["y"]).all()
+        assert torch.allclose(b["x"].mean(dim=1), torch.zeros(1), atol=1e-4)  # standardised per table
+
+
 def _grads_after_step(model, batch, micro_batch_size):
     optimizer = torch.optim.SGD(model.parameters(), lr=0.0)  # lr 0: keep the weights, only compute gradients
     loss = train_step(model, optimizer, batch["x"], batch["y"], batch["n_train"], "cpu", micro_batch_size, grad_clip=1e9)

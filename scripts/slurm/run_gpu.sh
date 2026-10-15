@@ -15,19 +15,27 @@ start_ts=$(date +%s)
 # Settings via environment variables, e.g. a smoke run:
 #   sbatch --export=ALL,STEPS=50,RUN=smoke_maize_structured scripts/slurm/run_gpu.sh
 # (on Snellius `STEPS=50 sbatch ...` does NOT reach the job; use --export)
+# Control run (prior tables shaped like the crop batches; more CPUs for the prior's generation):
+#   sbatch --cpus-per-task=16 --export=ALL,DATA=prior-matched,WORKERS=14,STOP_AT=1000,SAVE_STEPS="500 1000",EVAL=step500.pt,RUN=scm_matched_maize_structured scripts/slurm/run_gpu.sh
 cd /home/vnedungadi/tnp-crop
 MODE=${MODE:-structured}  # structured | random
-STEPS=${STEPS:-5000}
+DATA=${DATA:-crop}        # crop | prior-matched (control: SCM prior tables with the crop batches' shapes)
+STEPS=${STEPS:-5000}      # length of the learning-rate schedule
+STOP_AT=${STOP_AT:-$STEPS}  # stop early, keeping the schedule of STEPS
+SAVE_STEPS=${SAVE_STEPS:-}  # e.g. "500 1000": also save step<N>.pt
 LR=${LR:-3e-5}
+WORKERS=${WORKERS:-4}     # DataLoader workers (prior generation)
+EVAL=${EVAL:-best.pt}     # checkpoint evaluated on the test years
 TABLE=${TABLE:-/projects/prjs1788/tnp-crop/processed/wofost_maize_daily.parquet}  # CY-Bench features (calendar run)
 RUN=${RUN:-continue_maize_$MODE}
 OUT=/projects/prjs1788/tnp-crop/nanotabicl/$RUN  # project space: home is nearly full
 
-uv run python -m nanotabicl.train --init official --data crop --crop-episodes $MODE --table $TABLE \
-    --steps $STEPS --lr $LR --micro-batch-size 2 --checkpoint-activations --out-dir $OUT
+uv run python -u -m nanotabicl.train --init official --data $DATA --crop-episodes $MODE --table $TABLE \
+    --steps $STEPS --stop-at $STOP_AT --save-steps $SAVE_STEPS --lr $LR --num-workers $WORKERS \
+    --micro-batch-size 2 --checkpoint-activations --out-dir $OUT
 
-# test years, best checkpoint (lowest val RMSE)
-uv run python -m nanotabicl.evaluate --checkpoint $OUT/best.pt --table $TABLE --years 2019 2020
+# test years (WOFOST tables)
+uv run python -u -m nanotabicl.evaluate --checkpoint $OUT/$EVAL --table $TABLE --years 2019 2020
 
 echo "Job finished at:  $(date)"
 end_ts=$(date +%s)

@@ -154,6 +154,13 @@ uv run python -m nanotabicl.train --init scratch --size small --data mix --prior
     --table data/processed/wofost_wheat_daily.parquet --lr 1e-3 --steps 50000 --num-workers 8 \
     --micro-batch-size 1 --checkpoint-activations --out-dir logs/nanotabicl/scratch_mix
 
+# 2c. control for 2a: the same run on SCM prior tables with the crop batches' shapes (step k gets
+#     prior tables with the rows, features and context rows of 2a's batch k; columns standardised
+#     per table). --stop-at ends early with the --steps schedule; --save-steps keeps step<N>.pt.
+uv run python -m nanotabicl.train --init official --data prior-matched --crop-episodes structured \
+    --table data/processed/wofost_maize_daily.parquet --lr 3e-5 --steps 5000 --stop-at 1000 \
+    --save-steps 500 1000 --num-workers 14 --micro-batch-size 2 --checkpoint-activations --out-dir logs/nanotabicl/scm_matched
+
 # 3. walk-forward test evaluation (2019-2020); --checkpoint official = zero-shot baseline
 uv run python -m nanotabicl.evaluate --checkpoint logs/nanotabicl/continue_wheat/best.pt --table data/processed/wofost_wheat_daily.parquet
 uv run python -m nanotabicl.evaluate --checkpoint official --table data/processed/wofost_wheat_daily.parquet
