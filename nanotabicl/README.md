@@ -61,7 +61,16 @@ a calendar run (`scripts/slurm/run_wofost_cybench.sh`).
 benchmark's own code (needs `uv pip install -e ../AgML-CY-Bench-Modeling --no-deps`).
 
 In the benchmark, `regressor.py`'s `NanoTabICLRegressor` (`fit(X, y)` /
-`predict(X)`) takes the benchmark's table directly.
+`predict(X)`) takes the benchmark's table directly. `n_estimators=None`
+(default) is one forward pass on the table as it is; `n_estimators=8` is
+TabICL's test-time ensemble (`ensemble.py`, ported from `tabicl`): 4 column
+orders x {no, Yeo-Johnson power} normalisation, outliers clipped, one pass
+per view, predictions averaged -- the same as `TabICLRegressor(n_estimators=8)`
+(tested against it).
+
+`distribution_gap.py` (`scripts/slurm/run_distribution_gap.sh`) plots every
+feature and the yield, WOFOST against CY-Bench countries, with gap scores
+and feature-yield correlations (`docs/figures/distribution_gap/`).
 
 Regions (countries) with fewer than `--min-points` (10) points are dropped.
 A training table comes from one region, uses between 10 and all of its
@@ -88,7 +97,14 @@ at T).
 
 nanotabicl has **no checkpoint of its own**. Its model is the TabICLv2
 architecture, so the official TabICLv2 weights load into it after a key
-rename, done by `checkpoint.py`. `python -m nanotabicl.checkpoint`
+rename, done by `checkpoint.py`. One difference: the vendored `model.py`
+groups columns at offsets 0, 1, 3, the official model at 1, 2, 4 (same
+groups, one column further). `checkpoint.NanoTabICL` rolls the input
+columns by one when `official_feature_grouping` is set (official conversion,
+and every run continued from it), which makes the converted model equal to
+the official one (float64, all weights checked). Checkpoints trained before
+this fix (e.g. `continue_maize_structured/best.pt`) don't have the flag and
+keep the grouping they were trained with. `python -m nanotabicl.checkpoint`
 downloads `tabicl-regressor-v2-20260212.ckpt` from the Hugging Face Hub
 (`jingang/TabICL`), converts it and runs a forward pass.
 
