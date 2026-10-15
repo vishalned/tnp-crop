@@ -195,7 +195,9 @@ def main():
     p.add_argument("--checkpoint-activations", action="store_true",
                    help="recompute block activations in the backward pass instead of storing them (less memory, slower)")
     p.add_argument("--lr", type=float, default=1e-4, help="~1e-5..1e-4 when continuing from official, ~1e-3 from scratch")
-    p.add_argument("--warmup", type=int, default=200)
+    p.add_argument("--warmup", type=int, default=200, help="warmup steps")
+    p.add_argument("--warmup-fraction", type=float, default=None,
+                   help="warmup as a fraction of --steps (overrides --warmup; official fine-tuning: 0.1)")
     p.add_argument("--weight-decay", type=float, default=0.0)
     p.add_argument("--grad-clip", type=float, default=1.0)
     p.add_argument("--eval-every", type=int, default=500)
@@ -207,6 +209,8 @@ def main():
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
 
+    if args.warmup_fraction is not None:
+        args.warmup = max(1, round(args.warmup_fraction * args.steps))
     torch.manual_seed(args.seed)
     os.makedirs(args.out_dir, exist_ok=True)
     with open(os.path.join(args.out_dir, "config.json"), "w") as f:

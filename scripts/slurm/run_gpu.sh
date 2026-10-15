@@ -24,6 +24,8 @@ STEPS=${STEPS:-5000}      # length of the learning-rate schedule
 STOP_AT=${STOP_AT:-$STEPS}  # stop early, keeping the schedule of STEPS
 SAVE_STEPS=${SAVE_STEPS:-}  # e.g. "500 1000": also save step<N>.pt
 LR=${LR:-3e-5}
+WD=${WD:-0}               # AdamW weight decay (official fine-tuning: 0.01)
+WARMUP_FRAC=${WARMUP_FRAC:-}  # warmup as a fraction of STEPS (official fine-tuning: 0.1); empty = 200 steps
 WORKERS=${WORKERS:-4}     # DataLoader workers (prior generation)
 EVAL=${EVAL:-best.pt}     # checkpoint evaluated on the test years
 TABLE=${TABLE:-/projects/prjs1788/tnp-crop/processed/wofost_maize_daily.parquet}  # CY-Bench features (calendar run)
@@ -31,7 +33,8 @@ RUN=${RUN:-continue_maize_$MODE}
 OUT=/projects/prjs1788/tnp-crop/nanotabicl/$RUN  # project space: home is nearly full
 
 uv run python -u -m nanotabicl.train --init official --data $DATA --crop-episodes $MODE --table $TABLE \
-    --steps $STEPS --stop-at $STOP_AT --save-steps $SAVE_STEPS --lr $LR --num-workers $WORKERS \
+    --steps $STEPS --stop-at $STOP_AT --save-steps $SAVE_STEPS --lr $LR --weight-decay $WD \
+    ${WARMUP_FRAC:+--warmup-fraction $WARMUP_FRAC} --num-workers $WORKERS \
     --micro-batch-size 2 --checkpoint-activations --out-dir $OUT
 
 # test years (WOFOST tables)
