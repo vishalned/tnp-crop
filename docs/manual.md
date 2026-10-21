@@ -1,6 +1,6 @@
 # Manual: from WOFOST simulations to NanoTabICL
 
-A walkthrough of the code on the `tabICL` branch, in the order the data
+A walkthrough of the code in this repo, in the order the data
 flows: where the simulated seasons come from and which assumptions they make,
 how they're stored and processed, what the model is and how it works inside,
 and how training and evaluation tables are built. Every section points to the

@@ -6,11 +6,13 @@
 
 <br>
 
-This branch trains [NanoTabICL](https://github.com/soda-inria/nanotabicl) (a minimal TabICLv2) on
+This repo trains [NanoTabICL](https://github.com/soda-inria/nanotabicl) (a minimal TabICLv2) on
 WOFOST-simulated crop seasons: continued pretraining from the official TabICLv2 weights, and
 pretraining from scratch on WOFOST tables and/or the TabICLv2 prior. That code is self-contained in
-[`nanotabicl/`](nanotabicl/README.md); the `uv` setup and the WOFOST data pipeline (soil, weather,
-simulation, dataset checks) below are shared with `main`.
+[`nanotabicl/`](nanotabicl/README.md). The rest is the WOFOST data pipeline (soil, weather,
+simulation, dataset checks, below), result plots in `analysis/`, and a bare
+[lightning-hydra-template](https://github.com/ashleve/lightning-hydra-template) skeleton
+(`src/train.py`, `src/eval.py`, `src/utils/`, `configs/`) with no model or datamodule in it.
 
 ## Environment Setup (uv)
 
@@ -20,7 +22,7 @@ This project uses [uv](https://docs.astral.sh/uv/) instead of conda for dependen
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh   # install uv (one-time)
 uv venv                                             # creates .venv using .python-version
-uv sync --extra train      # if you're training the TNP-D model
+uv sync --extra train      # torch / lightning
 uv sync --extra data       # if you're only running the data pipeline
 uv sync --extra nanotabicl # if you're training NanoTabICL (with --extra train for torch; see nanotabicl/README.md)
 uv sync --all-extras       # everything

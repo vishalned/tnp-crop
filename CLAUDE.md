@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Crop-yield prediction from WOFOST-simulated growing seasons. Two independent halves share one repo:
+Crop-yield prediction from WOFOST-simulated growing seasons. Parts of the repo:
 
-1. **Data pipeline** (`src/data_pipeline/`, `src/data_checks/`) — picks locations, pulls soil (SoilGrids) and weather (ERA5-Land) from Google Earth Engine, runs WOFOST via PCSE, and turns the runs into one training table per crop. Shared with `main`.
-2. **Models**
-   - `nanotabicl/` (the focus of the `tabICL` branch): self-contained plain-PyTorch NanoTabICLv2 (TabICLv2) training/evaluation. Does **not** use Hydra/Lightning; it only reads the processed Parquet table.
-   - `src/train.py`, `src/models/`, `src/data/`, `configs/` — the TNP-D model on the lightning-hydra-template (Hydra configs, Lightning modules). Currently only a synthetic smoke test (`configs/experiment/tnp_synthetic.yaml`).
+1. **Data pipeline** (`src/data_pipeline/`, `src/data_checks/`) — picks locations, pulls soil (SoilGrids) and weather (ERA5-Land) from Google Earth Engine, runs WOFOST via PCSE, and turns the runs into one training table per crop.
+2. **Models**: `nanotabicl/`, self-contained plain-PyTorch NanoTabICLv2 (TabICLv2) training/evaluation. Does **not** use Hydra/Lightning; it only reads the processed Parquet table.
+3. **Template skeleton**: `src/train.py`, `src/eval.py`, `src/utils/`, `configs/` from the lightning-hydra-template, kept basic. The old TNP-D model/datamodule code was removed; `configs/data/tnp.yaml`, `configs/model/tnp.yaml` and `configs/experiment/tnp_synthetic.yaml` are kept for reference but point to removed modules, so `src/train.py` needs a new model/datamodule before it runs.
+4. **Analysis**: `analysis/plot_results.py` makes the result figures (`analysis/figures/`) from `docs/results_*.csv`.
 
 `docs/manual.md` is a full walkthrough of the pipeline end to end (with file/function pointers and known simplifications); `docs/data_dictionary.md` describes every column; `nanotabicl/README.md` covers the model side in detail. Read these before changing behavior in those areas, and keep them in sync when you do.
 
@@ -45,8 +45,6 @@ uv run python -m nanotabicl.train --init official --data crop --crop-episodes st
 uv run python -m nanotabicl.evaluate --checkpoint <out>/best.pt --table ... --years 2019 2020   # --checkpoint official = zero-shot
 sbatch scripts/slurm/run_gpu.sh                    # GPU training + test eval on an A100 (MODE=structured|random)
 ```
-
-TNP side: `python src/train.py experiment=tnp_synthetic` (Hydra overrides as usual).
 
 ## Setup prerequisites (one-time, per machine)
 
