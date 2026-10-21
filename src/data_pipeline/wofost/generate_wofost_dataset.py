@@ -21,6 +21,7 @@ import multiprocessing
 import os
 import random
 import sys
+import time
 import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Optional
@@ -104,6 +105,9 @@ def _empty_row(job: dict, year: int, jitter_index: int, sowing_offset_days: int)
         "sowing_date": None,
         "yield_kg_per_ha": None,
         "final_dvs": None,
+        "flowering_date": None,
+        "maturity_date": None,
+        "runtime_s": None,
         "awc": None,
         "bulk_density": None,
         "daily_path": None,
@@ -133,6 +137,7 @@ def _run_location_group(jobs: list, sowing_jitter_days: int, save_dir: str, num_
         for year, jitter_index, offset in _episodes(job):
             print(f"{tag}, year {year}, jitter {jitter_index} ({offset:+d} days)", flush=True)
             row = _empty_row(job, year, jitter_index, offset)
+            start = time.perf_counter()
             try:
                 result = generate_wofost_episode(
                     longitude=longitude,
@@ -150,6 +155,8 @@ def _run_location_group(jobs: list, sowing_jitter_days: int, save_dir: str, num_
                     sowing_date=summary.get("sowing_date"),
                     yield_kg_per_ha=summary.get("yield_kg_per_ha"),
                     final_dvs=summary.get("final_dvs"),
+                    flowering_date=summary.get("flowering_date"),
+                    maturity_date=summary.get("maturity_date"),
                     awc=summary.get("awc"),
                     bulk_density=summary.get("bulk_density"),
                     daily_path=result["daily_path"],
@@ -159,6 +166,7 @@ def _run_location_group(jobs: list, sowing_jitter_days: int, save_dir: str, num_
                 row["error"] = f"{type(e).__name__}: {e}"
                 print(f"{tag}, year {year}, jitter {jitter_index} FAILED: {row['error']}", flush=True)
                 traceback.print_exc()
+            row["runtime_s"] = round(time.perf_counter() - start, 3)
             rows.append(row)
     return rows
 
@@ -185,6 +193,7 @@ def generate_wofost_dataset(
     output_dir: Optional[str] = None,
     num_workers: Optional[int] = None,
     max_locations: Optional[int] = None,
+    location_indices: Optional[list] = None,
 ) -> dict:
     """Run WOFOST episodes for a batch of locations -- every year in
     `[start_year, end_year]` (sowing year), `num_jitters` sowing dates per
@@ -207,6 +216,8 @@ def generate_wofost_dataset(
         of the locations CSV, so `location_index` keeps its meaning). The
         sowing offsets of every location are still drawn, so a location gets
         the same episodes whatever this is.
+    :param location_indices: only run these locations (rows of the CSV);
+        like `max_locations`, the other locations' offsets are still drawn.
 
     Sowing offsets are all drawn up front in this process, in location
     order, so a given `seed` gives the same episodes whatever `num_workers`
@@ -246,7 +257,7 @@ def generate_wofost_dataset(
             "years": years,
             "sowing_offsets": [_sample_jitter_offsets(rng, num_jitters, sowing_jitter_days) for _ in years],
         }
-        if max_locations is None or i < max_locations:
+        if (max_locations is None or i < max_locations) and (location_indices is None or i in location_indices):
             groups.setdefault((longitude, latitude), []).append(job)
 
     manifest_rows = []

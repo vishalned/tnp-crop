@@ -1,0 +1,32 @@
+# Dataset E: D + more locations/countries (irrigation placeholder as in D): extra_locations_csvs are appended after locations_csv
+# (location_index continues). None added yet. Note: new locations need soil/weather downloads (GEE).
+name: E
+crop: maize
+locations_csv: data/raw/locations/locations_maize.csv
+output_dir: /projects/prjs1788/tnp-crop/wofost_worlds/E
+start_year: 2005
+end_year: 2020
+seed: 42
+max_locations: null       # all locations of the list
+sowing_scheme: world
+worlds_per_location: 10
+world_shift_days: 10
+year_jitter_days: 3
+default_cultivar: Grain_maize_201
+sample_cultivar: true
+cultivars: [Grain_maize_201, Grain_maize_202, Grain_maize_203, Grain_maize_204, Grain_maize_205]
+sample_factors: true
+factor_ranges:              # multiplicative factor, uniform in [low, high]; tables: value column only
+  TSUM1: [0.9, 1.1]
+  TSUM2: [0.9, 1.1]
+  AMAX_REF: [0.85, 1.15]    # WOFOST 8.1 maize has AMAX_REF, not AMAXTB
+  EFFTB: [0.85, 1.15]
+  SPAN: [0.85, 1.15]
+  SLATB: [0.85, 1.15]
+  RDMCR: [0.85, 1.15]       # rounded to rdmcr_step_cm, <= soil depth (200 cm)
+rdmcr_step_cm: 5
+irrigation: true
+irrigation_share_csv: null       # CSV: region_id,irrigated_share (e.g. MIRCA2000 per country)
+irrigation_region_column: country
+default_irrigated_share: 0.15    # placeholder for every region until the CSV exists
+extra_locations_csvs: []         # e.g. [data/raw/locations/locations_maize_extra.csv]

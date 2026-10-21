@@ -190,6 +190,12 @@ The column-by-column description of the files is in
 
 ---
 
+### 3.5 Sampled worlds
+
+`generate_worlds_dataset.py` runs the same simulation for sampled "worlds" (a location plus hidden
+settings: cultivar, irrigation, crop-parameter factors and sowing shift, fixed over all years); the
+original batch runner is its dataset A. See `docs/wofost_worlds.md`.
+
 ## 4. Assumptions of the simulations
 
 | assumption | value | where |

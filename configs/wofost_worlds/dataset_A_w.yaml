@@ -1,0 +1,16 @@
+# Dataset A_w: worlds with only their sowing: per world a shift of +-10 days around the calendar SOS,
+# per year +-3 days on top; Grain_maize_201, water-limited, no parameter factors. B - A_w isolates the
+# cultivar's effect.
+name: A_w
+crop: maize
+locations_csv: data/raw/locations/locations_maize.csv
+output_dir: /projects/prjs1788/tnp-crop/wofost_worlds/A_w
+start_year: 2005
+end_year: 2020
+seed: 42
+max_locations: 1585
+sowing_scheme: world
+worlds_per_location: 10
+world_shift_days: 10
+year_jitter_days: 3
+default_cultivar: Grain_maize_201

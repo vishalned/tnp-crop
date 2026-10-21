@@ -25,6 +25,9 @@ from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import (
 )
 from src.data_pipeline.wofost.utils_wofost.pcse_runner import (
     build_parameter_provider,
+    layer_thicknesses,
+    merge_split_layers,
+    split_soil_layer_at,
     merge_weather_and_derive_features,
     run_wofost,
 )
@@ -32,6 +35,21 @@ from src.data_pipeline.wofost.utils_wofost.pcse_runner import (
 
 root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 DEFAULT_WOFOST_SAVE_DIR = os.path.join(str(root), "data", "raw", "wofost")
+PRODUCTION_MODELS = {"WLP": wofost_model_name(), "PP": "Wofost81_PP"}
+
+
+def _iso(day) -> Optional[str]:
+    return day.isoformat() if isinstance(day, datetime.date) else None
+
+
+def with_rainfed_soil(pp_output, wlp_output):
+    """A potential-production (PP) daily output with the soil columns of the
+    water-limited run of the same season: PP has no soil water balance, so
+    its soil moisture would be meaningless. The soil columns are the
+    multi-layer water balance's per-layer `SM_layer*`/`WC_layer*`."""
+    soil = [c for c in wlp_output.columns if c.startswith(("SM_layer", "WC_layer"))]
+    out = pp_output.drop(columns=[c for c in pp_output.columns if c == "SM" or c in soil])
+    return out.merge(wlp_output[["day"] + soil], on="day", how="left")
 
 
 def generate_wofost_episode(
@@ -48,6 +66,9 @@ def generate_wofost_episode(
     sowing_offset_days: Optional[int] = None,
     eos_doy: Optional[int] = None,
     pre_season_days: Optional[int] = None,
+    param_overrides: Optional[dict] = None,
+    production: str = "WLP",
+    file_tag: Optional[str] = None,
 ) -> dict:
     """Run one end-to-end WOFOST/PCSE simulation episode for a location/year
     and cache the daily driver+output trajectory (with CYBench-aligned
@@ -84,6 +105,19 @@ def generate_wofost_episode(
         the whole period from `default_weather_start_date()` to the present
         is fetched in one request; see
         `gee_weather.get_gee_weather_provider_for_location`.
+    :param param_overrides: crop parameters to override (name -> value; tables
+        as PCSE's flat [x0, y0, x1, y1, ...] lists), e.g. a sampled world's
+        scaled parameters. A max rooting depth (`RDMCR`) that isn't on a soil
+        layer boundary then gets one (the layer it falls in is split in two
+        identical layers) instead of being rounded down to a boundary.
+    :param production: "WLP" (default: water-limited, multi-layer water
+        balance) or "PP" (potential production = fully irrigated). PP has no
+        soil water balance, so the soil columns (soil moisture) come from a
+        second, water-limited run with the same settings: the rain-fed soil,
+        as in GLDAS.
+    :param file_tag: added to the output file names (e.g. a world id), so
+        several runs of the same location, year and sowing date don't
+        overwrite each other.
     """
     variety_name = variety_name if variety_name is not None else default_crop_variety()[crop]
     anchor_doy = sowing_doy if sowing_doy is not None else default_sowing_doy()[crop]
@@ -104,7 +138,8 @@ def generate_wofost_episode(
         season_end = datetime.date(eos_year, 1, 1) + datetime.timedelta(days=int(eos_doy) - 1)
         campaign_end = max(campaign_end, season_end + datetime.timedelta(days=1))
 
-    model_class = getattr(pcse_models, wofost_model_name())
+    if production not in PRODUCTION_MODELS:
+        raise ValueError(f"production must be one of {sorted(PRODUCTION_MODELS)}, got {production!r}.")
 
     print(f"building soil profile for longitude: {longitude}, latitude: {latitude}")
     soil_data, static_features = generate_soil_data_for_wofost(
@@ -119,12 +154,6 @@ def generate_wofost_episode(
         end_date=campaign_end,
     )
 
-    params = build_parameter_provider(
-        model_class=model_class,
-        crop_name=crop,
-        variety_name=variety_name,
-        soil_data=soil_data,
-    )
     agromanagement = build_agromanagement(
         crop_name=crop,
         variety_name=variety_name,
@@ -134,7 +163,25 @@ def generate_wofost_episode(
         campaign_end=campaign_end,
     )
 
-    daily_output, summary = run_wofost(model_class, params, weather_data_provider, agromanagement)
+    def run(model_name):
+        model_class = getattr(pcse_models, model_name)
+        params = build_parameter_provider(
+            model_class=model_class,
+            crop_name=crop,
+            variety_name=variety_name,
+            soil_data=soil_data,
+            param_overrides=param_overrides,
+        )
+        output, summary = run_wofost(model_class, params, weather_data_provider, agromanagement)
+        if "RDMCR" in (param_overrides or {}):  # back to the standard soil layers (see split_soil_layer_at)
+            split = layer_thicknesses(split_soil_layer_at(soil_data, param_overrides["RDMCR"]))
+            output = merge_split_layers(output, split, layer_thicknesses(soil_data))
+        return output, summary, params
+
+    daily_output, summary, params = run(PRODUCTION_MODELS[production])
+    if production == "PP":
+        rainfed_output, _, _ = run(PRODUCTION_MODELS["WLP"])
+        daily_output = with_rainfed_soil(daily_output, rainfed_output)
     daily_output = merge_weather_and_derive_features(
         daily_output, weather_data_provider, latitude, longitude, params
     )
@@ -144,6 +191,8 @@ def generate_wofost_episode(
     os.makedirs(save_dir, exist_ok=True)
 
     file_stem = f"wofost_{crop}_{longitude}_{latitude}_{year}_{sowing_date.isoformat()}"
+    if file_tag:
+        file_stem += f"_{file_tag}"
     daily_path = os.path.join(save_dir, f"{file_stem}.csv")
     summary_path = os.path.join(save_dir, f"{file_stem}_summary.json")
 
@@ -153,7 +202,6 @@ def generate_wofost_episode(
         "longitude": longitude,
         "latitude": latitude,
         "crop": crop,
-        "variety_name": variety_name,
         "year": year,
         "sowing_date": sowing_date.isoformat(),
         "sowing_offset_days": (sowing_date - season_start).days,
@@ -164,6 +212,11 @@ def generate_wofost_episode(
         # yield: total weight storage organs (kg/ha) at maturity
         "yield_kg_per_ha": summary.get("TWSO"),
         "final_dvs": summary.get("DVS"),
+        # anthesis (flowering) and maturity dates; None if not reached
+        "flowering_date": _iso(summary.get("DOA")),
+        "maturity_date": _iso(summary.get("DOM")),
+        "variety_name": variety_name,
+        "production": production,
         # awc/bulk_density: derived from the topsoil layer of the real
         # GEE-sourced, depth-resolved soil profile (see
         # soil_static_features.compute_topsoil_static_features).

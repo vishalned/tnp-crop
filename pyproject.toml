@@ -27,6 +27,7 @@ data = [
     "zarr>=3.1; python_version >= '3.11'",
     "matplotlib>=3.8",
     "pyarrow>=15",  # processed tables are written as parquet
+    "salib>=1.6.0",
 ]
 nanotabicl = [
   # torch comes with the `train` extra

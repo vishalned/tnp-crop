@@ -1,0 +1,14 @@
+# Dataset A: the original setup (baseline). Runs the original batch runner (generate_wofost_dataset):
+# Grain_maize_201, water-limited, per year 3 distinct sowing dates within +-10 days of the calendar SOS.
+# With the same seed and locations it reproduces the current data (wofost_calendar).
+name: A
+crop: maize
+locations_csv: data/raw/locations/locations_maize.csv
+output_dir: /projects/prjs1788/tnp-crop/wofost_worlds/A
+start_year: 2005
+end_year: 2020
+seed: 42
+max_locations: 1585          # the locations whose soil/weather are cached (as wofost_calendar)
+sowing_scheme: legacy
+num_jitters: 3
+sowing_jitter_days: 10

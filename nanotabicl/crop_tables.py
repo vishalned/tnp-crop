@@ -31,6 +31,11 @@ rows), so batches need no padding. The batch's size is drawn from the range
 of a region picked uniformly at random; the other tables of the batch come
 from regions large enough for that size.
 
+Worlds datasets (`generate_worlds_dataset`, several sampled worlds per location): a point is a world
+(`location_index`), and `site_index` is its location. A training table then has at most one world per
+site, so a table never holds two simulations of the same place; region sizes (`min_points`, the number
+of points per table) count sites. Tables without `site_index` are sampled exactly as before.
+
 Year split by sowing year: training tables only use the train years;
 evaluation is walk-forward (T = a val/test year, context = every earlier
 year of the region's points).
@@ -85,10 +90,14 @@ class CropTables:
         for p, y in self.cells:
             self.point_years.setdefault(p, set()).add(y)
         countries = df.groupby("location_index")["country"].first()
+        # site of each point: its location (worlds datasets), else the point itself
+        self.site_of = df.groupby("location_index")["site_index"].first().to_dict() if "site_index" in df else None
         wanted = config.countries or sorted(countries.unique())
         regions = {c: np.array(countries.index[countries == c]) for c in wanted}
-        self.dropped_regions = {c: len(p) for c, p in regions.items() if len(p) < config.min_points}
-        self.country_points = {c: p for c, p in regions.items() if len(p) >= config.min_points}
+        n_sites = {c: self._n_sites(p) for c, p in regions.items()}
+        self.dropped_regions = {c: n_sites[c] for c in regions if n_sites[c] < config.min_points}
+        self.country_points = {c: p for c, p in regions.items() if n_sites[c] >= config.min_points}
+        self.country_sites = {c: n_sites[c] for c in self.country_points}
         if not self.country_points:
             raise ValueError(f"No region has >= {config.min_points} points ({ {c: len(p) for c, p in regions.items()} }).")
         self.years = sorted(df["sowing_year"].unique())
@@ -114,9 +123,9 @@ class CropTables:
         lead = countries[rng.integers(len(countries))]
         rows_per_point = (int(rng.integers(cfg.min_context_years, cfg.max_context_years + 1)) + 1
                           if cfg.episodes == "structured" else len(self.train_pool))
-        hi = min(len(self.country_points[lead]), cfg.max_points or np.inf, cfg.max_rows // rows_per_point)
+        hi = min(self.country_sites[lead], cfg.max_points or np.inf, cfg.max_rows // rows_per_point)
         n_points = int(rng.integers(cfg.min_points, max(hi, cfg.min_points) + 1))
-        eligible = [c for c in countries if len(self.country_points[c]) >= n_points]
+        eligible = [c for c in countries if self.country_sites[c] >= n_points]
         n_train = None
         if cfg.episodes == "random":
             n_rows = n_points * rows_per_point
@@ -145,10 +154,11 @@ class CropTables:
         before = {y for y in self.train_pool if y < T}
         candidates = [p for p in self.country_points[country]
                       if T in self.point_years[p] and len(self.point_years[p] & before) >= n_context_years]
-        if len(candidates) < n_points:
+        points = self._choose_points(rng, candidates, n_points)
+        if points is None:
             return None
         context, query = [], []
-        for p in rng.choice(candidates, size=n_points, replace=False):
+        for p in points:
             for y in rng.choice(sorted(self.point_years[p] & before), size=n_context_years, replace=False):
                 context.append(rng.choice(self.cells[(p, y)]))
             query.append(rng.choice(self.cells[(p, T)]))
@@ -157,11 +167,29 @@ class CropTables:
     def _random(self, rng, country, n_points, n_train) -> Optional[tuple]:
         pool = set(self.train_pool)
         candidates = [p for p in self.country_points[country] if pool <= self.point_years[p]]
+        points = self._choose_points(rng, candidates, n_points)
+        if points is None:
+            return None
+        rows = np.array([rng.choice(self.cells[(p, y)]) for p in points for y in sorted(pool)])
+        return rng.permutation(rows), n_train  # first n_train rows = context
+
+    def _n_sites(self, points) -> int:
+        return len(points) if self.site_of is None else len({self.site_of[p] for p in points})
+
+    def _choose_points(self, rng, candidates, n_points) -> Optional[np.ndarray]:
+        """`n_points` distinct candidates at random, at most one per site; None if there are too few."""
         if len(candidates) < n_points:
             return None
-        rows = np.array([rng.choice(self.cells[(p, y)])
-                         for p in rng.choice(candidates, size=n_points, replace=False) for y in sorted(pool)])
-        return rng.permutation(rows), n_train  # first n_train rows = context
+        if self.site_of is None:
+            return rng.choice(candidates, size=n_points, replace=False)
+        chosen, sites = [], set()
+        for p in rng.permutation(candidates):
+            if self.site_of[p] not in sites:
+                chosen.append(p)
+                sites.add(self.site_of[p])
+                if len(chosen) == n_points:
+                    return np.array(chosen)
+        return None
 
     # ----- evaluation -------------------------------------------------------------------
 

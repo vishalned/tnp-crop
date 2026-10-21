@@ -62,6 +62,7 @@ sbatch scripts/slurm/run_gpu.sh                    # GPU training + test eval on
 - **Regions = countries**; regions with < `--min-points` (10) points are dropped. Training tables: `structured` (target year + 5–11 earlier context years per point) or `random` (TabICL-style random context/query split). All tables in a batch share their shape (no padding).
 - **Regression objective** matches official TabICL: 999 quantiles, pinball loss, target standardized per table with context-row mean/std (inverted for predictions).
 - **GPU memory:** each cell is a 128-dim token (maize `eos`: 153 features). `--micro-batch-size` and `--checkpoint-activations` must not change the update (there is a test for this); on a 40 GB A100 use `--micro-batch-size 1 --checkpoint-activations`.
+- **Sampled worlds** (`docs/wofost_worlds.md`): `generate_worlds_dataset.py` + `worlds.py`, configs `configs/wofost_worlds/dataset_{A,A_w,B,C,D,E}.yaml`. A world = location + hidden settings (cultivar, PP/WLP, crop-parameter factors, sowing shift) fixed over all years; dataset A = the original runner. Processed world tables: `location_index` = site × 1000 + world, `site_index` = location; `CropTables` takes at most one world per site per training table.
 - Run outputs: `--out-dir` gets `config.json`, `log.csv`, `best.pt` (lowest val RMSE), `last.pt`; evaluate writes `metrics_<years>.json` and `predictions_<years>.csv`.
 
 ## Conventions

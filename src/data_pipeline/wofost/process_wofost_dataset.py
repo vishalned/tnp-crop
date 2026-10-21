@@ -198,14 +198,17 @@ def process_episode(
 
     # Manifests from before per-year jitters had one episode per year.
     jitter_index = int(row["jitter_index"]) if pd.notna(row.get("jitter_index")) else 0
+    world_id = row.get("world_id") if isinstance(row.get("world_id"), str) else None
     out = {
-        "sample_id": f"{row['longitude']}_{row['latitude']}_{crop}_{maturity_date.year}_j{jitter_index}",
+        "sample_id": f"{row['longitude']}_{row['latitude']}_{crop}_{maturity_date.year}_j{jitter_index}"
+        + (f"_{world_id}" if world_id else ""),
         "location_index": int(row["location_index"]),
         "location_id": f"{row['longitude']}_{row['latitude']}",
         "crop": crop,
         "year": maturity_date.year,
         "sowing_year": sowing_year,
         "jitter_index": jitter_index,
+        **({"world_id": world_id, "world_index": int(row["world_index"])} if world_id else {}),
         "latitude": row["latitude"],
         "longitude": row["longitude"],
         "awc": 100.0 * row["awc"],  # m3/m3 -> cm/m (WISE's TAWC unit)
@@ -227,6 +230,18 @@ def process_episode(
         values = (weather_window if source == "weather" else wofost_window)[col].to_numpy() * scale
         out.update({f"{name}_d{k:03d}": v for k, v in enumerate(values)})
     return out
+
+
+def world_points(df: pd.DataFrame) -> pd.DataFrame:
+    """Worlds dataset: every world is its own point. The location's row number moves to
+    `site_index` and `location_index` (the point id the training tables group rows by) becomes
+    `site_index * 1000 + world_index`, e.g. world 3 of location 12 = 12003. With one world per
+    location (dataset A) `location_index` is left as it was."""
+    df = df.copy()
+    df.insert(df.columns.get_loc("location_index") + 1, "site_index", df["location_index"])
+    if (df["world_index"] > 0).any():
+        df["location_index"] = df["site_index"] * 1000 + df["world_index"]
+    return df.sort_values(["location_index", "year", "jitter_index"]).reset_index(drop=True)
 
 
 def process_wofost_dataset(
@@ -271,7 +286,9 @@ def process_wofost_dataset(
 
     manifest = pd.read_csv(manifest_path)
     episodes = manifest[manifest["status"] == "success"]
-    print(f"{len(episodes)}/{len(manifest)} successful episodes in {manifest_path}.")
+    if "world_kept" in manifest:  # worlds dataset: rejected worlds are left out
+        episodes = episodes[episodes["world_kept"].astype(bool)]
+    print(f"{len(episodes)}/{len(manifest)} successful episodes (of kept worlds) in {manifest_path}.")
     num_days = {}  # crop -> number of day columns (calendar: the longest window)
     if align == "calendar":
         for crop, crop_episodes in episodes.groupby("crop"):
@@ -316,6 +333,8 @@ def process_wofost_dataset(
         df = df.sort_values(["location_index", "year", "jitter_index"]).reset_index(drop=True)
         if countries is not None:
             df.insert(df.columns.get_loc("location_id") + 1, "country", df["location_index"].map(countries))
+        if "world_id" in df:
+            df = world_points(df)
         stem = os.path.join(output_dir, f"wofost_{crop}_daily")
         path = f"{stem}.{file_format}"
         if file_format == "parquet":
@@ -340,7 +359,8 @@ def process_wofost_dataset(
                       "et0": "mm/day", "cwb": "mm/day", "fpar": "%", "ssm": "kg/m2 (0-10 cm)",
                       "rsm": "kg/m2 (0-100 cm)", "awc": "cm/m", "bulk_density": "g/cm3"},
             "ids": ["sample_id", "location_index", "location_id"] + (["country"] if countries is not None else [])
-            + ["crop", "year", "sowing_year", "jitter_index"],
+            + ["crop", "year", "sowing_year", "jitter_index"]
+            + (["world_id", "world_index", "site_index"] if "world_id" in df else []),
             "metadata": ["sowing_date", "sowing_offset_days", "maturity_date", "season_length_days", "reached_maturity",
                          "window_start", "window_end"],
             "static_features": default_static_features(),

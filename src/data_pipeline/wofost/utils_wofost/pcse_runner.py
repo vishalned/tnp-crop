@@ -1,3 +1,4 @@
+import copy
 import math
 from typing import Optional
 
@@ -34,21 +35,103 @@ def build_parameter_provider(
     variety_name: str,
     soil_data: Optional[dict],
     site_parameters: Optional[dict] = None,
+    param_overrides: Optional[dict] = None,
 ) -> ParameterProvider:
     """Assemble crop + soil + site parameters into one `ParameterProvider`.
 
     `soil_data=None` uses PCSE's `DummySoilDataProvider`, appropriate only for
     the potential-production plumbing check (spec step 1) that doesn't touch
     the water balance at all -- never for a real yield-track episode.
+
+    `param_overrides` (name -> value) replace crop parameters, e.g. a sampled
+    world's scaled ones. If they set `RDMCR`, the soil layer that depth falls
+    in is split in two identical layers at it (`split_soil_layer_at`), so the
+    multi-layer water balance accepts it as is; without overrides the
+    crop's own RDMCR is rounded down to a layer boundary as before.
     """
+    param_overrides = param_overrides or {}
     crop_data = load_crop_data_provider(model_class, crop_name, variety_name)
+    if "RDMCR" in param_overrides and isinstance(soil_data, dict):
+        soil_data = split_soil_layer_at(soil_data, param_overrides["RDMCR"])
     soil_data = soil_data if soil_data is not None else DummySoilDataProvider()
     site_params = site_parameters if site_parameters is not None else default_site_parameters()
     site_data = WOFOST81SiteDataProvider_Classic(**site_params)
 
     params = ParameterProvider(sitedata=site_data, soildata=soil_data, cropdata=crop_data)
+    for name, value in param_overrides.items():
+        params.set_override(name, value)
+    if getattr(model_class, "__name__", "") == "Wofost81_PP" and isinstance(soil_data, dict) and "SMFCF" not in params:
+        # potential production (Wofost81_PP) uses the classic soil bucket, which keeps soil moisture at
+        # field capacity (growth isn't water-limited) but needs its scalar parameters: the topsoil's
+        for name, value in topsoil_classic_parameters(soil_data).items():
+            params.set_override(name, value, check=False)
     _override_rooting_depth_if_needed(params, soil_data)
     return params
+
+
+def topsoil_classic_parameters(soil_data: dict) -> dict:
+    """The classic (single-bucket) soil parameters from the top layer of a multi-layer description:
+    water content at saturation (SM0, lowest pF of the table), field capacity (SMFCF) and wilting
+    point (SMW) from its SMfromPF curve, and its critical air content (CRAIRC)."""
+    profile = soil_data["SoilProfileDescription"]
+    top = profile["SoilLayers"][0]
+    sm = Afgen(top["SMfromPF"])
+    return {"SM0": float(sm(top["SMfromPF"][0])), "SMFCF": float(sm(profile.get("PFFieldCapacity", 2.0))),
+            "SMW": float(sm(profile.get("PFWiltingPoint", 4.2))), "CRAIRC": float(top["CRAIRC"])}
+
+
+def layer_thicknesses(soil_data: dict) -> list:
+    return [layer["Thickness"] for layer in soil_data["SoilProfileDescription"]["SoilLayers"]]
+
+
+def merge_split_layers(daily: pd.DataFrame, split: list, original: list) -> pd.DataFrame:
+    """Undo `split_soil_layer_at` in a daily output: the per-layer columns of a profile with layer
+    thicknesses `split` back to the `original` layers (water amounts `WC_layer*` add up, volumetric
+    contents `SM_layer*` are thickness-weighted), so layer i is the same depth in every output."""
+    if split == original:
+        return daily
+    groups, j = [], 0
+    for thickness in original:
+        members, total = [], 0.0
+        while total < thickness - 1e-9:
+            members.append(j)
+            total += split[j]
+            j += 1
+        groups.append(members)
+    daily = daily.copy()
+    for name, weighted in (("WC", False), ("SM", True)):
+        if f"{name}_layer0" not in daily:
+            continue
+        merged = {}
+        for i, members in enumerate(groups):
+            cols = [daily[f"{name}_layer{m}"] for m in members]
+            if weighted:
+                merged[f"{name}_layer{i}"] = sum(c * split[m] for c, m in zip(cols, members)) / original[i]
+            else:
+                merged[f"{name}_layer{i}"] = sum(cols)
+        daily = daily.drop(columns=[f"{name}_layer{m}" for m in range(len(split))]).assign(**merged)
+    return daily
+
+
+def split_soil_layer_at(soil_data: dict, depth_cm: float) -> dict:
+    """A copy of a PCSE multi-layer soil description in which the layer that
+    `depth_cm` falls inside is split in two layers with the same properties,
+    so `depth_cm` becomes a layer boundary (the multi-layer water balance
+    needs the max rooting depth on one). Unchanged if it already is one or
+    lies outside the profile."""
+    soil_data = copy.deepcopy(soil_data)
+    layers = soil_data["SoilProfileDescription"]["SoilLayers"]
+    top = 0.0
+    for i, layer in enumerate(layers):
+        bottom = top + layer["Thickness"]
+        if top < depth_cm < bottom:
+            upper, lower = copy.deepcopy(layer), copy.deepcopy(layer)
+            upper["Thickness"] = depth_cm - top
+            lower["Thickness"] = bottom - depth_cm
+            layers[i:i + 1] = [upper, lower]
+            break
+        top = bottom
+    return soil_data
 
 
 def _override_rooting_depth_if_needed(params: ParameterProvider, soil_data) -> None:
