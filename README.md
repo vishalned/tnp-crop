@@ -1,10 +1,18 @@
 <div align="center">
 
-# A Variant of Transformer Neural Process for Crops
+# NanoTabICL for Crop Yield Prediction (WOFOST)
 
 </div>
 
 <br>
+
+This repo trains [NanoTabICL](https://github.com/soda-inria/nanotabicl) (a minimal TabICLv2) on
+WOFOST-simulated crop seasons: continued pretraining from the official TabICLv2 weights, and
+pretraining from scratch on WOFOST tables and/or the TabICLv2 prior. That code is self-contained in
+[`nanotabicl/`](nanotabicl/README.md). The rest is the WOFOST data pipeline (soil, weather,
+simulation, dataset checks, below), result plots in `analysis/`, and a bare
+[lightning-hydra-template](https://github.com/ashleve/lightning-hydra-template) skeleton
+(`src/train.py`, `src/eval.py`, `src/utils/`, `configs/`) with no model or datamodule in it.
 
 ## Environment Setup (uv)
 
@@ -14,14 +22,15 @@ This project uses [uv](https://docs.astral.sh/uv/) instead of conda for dependen
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh   # install uv (one-time)
 uv venv                                             # creates .venv using .python-version
-uv sync --extra train      # if you're training models
+uv sync --extra train      # torch / lightning
 uv sync --extra data       # if you're only running the data pipeline
+uv sync --extra nanotabicl # if you're training NanoTabICL (with --extra train for torch; see nanotabicl/README.md)
 uv sync --all-extras       # everything
 ```
 
 ### Running code
 ```bash
-uv run python src/train.py experiment=tnp_synthetic
+uv run python -m nanotabicl.train --init official --data crop --table data/processed/wofost_wheat_daily.parquet
 uv run python -m src.data_pipeline.soil.generate_soilgrids_soil_file -lon 6.656 -lat 52.966
 uv run python -m src.data_pipeline.weather.generate_weather_file -lon 6.656 -lat 52.966 --start-date 2000-01-01 --end-date 2023-12-31
 uv run python -m src.data_pipeline.wofost.run_wofost_simulation -lon 6.656 -lat 52.966 --crop wheat --year 2020
@@ -36,7 +45,7 @@ Turn a finished batch run into training tables (one row per simulated growing se
 ```bash
 uv run python -m src.data_pipeline.wofost.process_wofost_dataset --manifest data/raw/wofost/dataset_manifest.csv
 ```
-This writes `data/processed/wofost_{crop}_daily.csv` plus a `..._columns.json` listing the id, static-feature, time-series and target columns (see `docs/data_dictionary.md`).
+This writes `data/processed/wofost_{crop}_daily.parquet` (`--format csv` for CSV; `--locations-csv` adds a `country` column) plus a `..._columns.json` listing the id, static-feature, time-series and target columns (see `docs/data_dictionary.md`).
 Soil and weather (ERA5-Land daily, `src/data_pipeline/weather/utils_weather/gee_weather.py`) for the WOFOST run are pulled per location via Google Earth Engine (see "Google Earth Engine setup" below), and crop parameters are read from a local clone of the WOFOST_crop_parameters repo (see "Crop parameters" below) — both are one-time setup steps needed before the WOFOST commands above will run.
 
 ### Dataset checks
@@ -55,23 +64,12 @@ uv run python -m src.data_checks.simulation_audit --manifest data/raw/wofost/dat
 ```
 The locations CSV (the one the batch ran on) supplies the countries; `--wofost-dir` points at the episode files if the manifest paths moved; `--max-daily-files` (default 500) caps how many daily files the simulation audit samples.
 
-### Training the crop TNP (TNP-D)
+### NanoTabICL
 
-1. Build the training store from a finished batch run (weather once per location, labels per location × season year × jitter, CropFM-zarr soil/terrain statics):
-   ```bash
-   uv run python -m src.data_pipeline.wofost.build_training_store --manifest data/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_wheat.csv --workers 8
-   ```
-   → `data/processed/tnp_store_wheat/` (`points.csv`, `seasons.csv`, `weather.npy`, `weather_meta.json`; see `docs/data_dictionary.md`).
-2. Smoke test (instantiate the datamodule from `configs/data/crop.yaml`, log the first 20 episodes' country/X/C/T/profile/token counts, run one forward + backward pass, check for NaNs):
-   ```bash
-   uv run python scripts/smoke_test_tnp_crop.py --device cuda          # real store
-   uv run python scripts/smoke_test_tnp_crop.py --synthetic            # no data needed
-   ```
-3. Train: `uv run python src/train.py experiment=tnp_crop` (configs: `configs/data/crop.yaml`, `configs/model/tnp_crop.yaml`). Normalization stats (train years only) are written to the run's `norm_stats.json` and stored inside every checkpoint.
-
-Year split (season = sowing year): train pool 2005–2016, val 2017–2018 (walk-forward during training), test 2019–2020 (walk-forward after training). Episode construction, tokens and the model changes are documented in `src/data/components/crop_episode_dataset.py` and `src/models/components/tnpd.py`; tests in `tests/test_tnp_crop.py` (`uv run pytest tests/test_tnp_crop.py`).
-
-**Token budget.** With the wheat weather window (`window_days: 322`, ~1 Oct → mid-Aug) a point-year is 46 weekly buckets × 6 variables = 276 weather tokens (192 dekadal). With X up to 10 points and C up to 11 context years (T = 2016 has 11 train years before it), the largest weekly episodes reach ~33k tokens; on the synthetic store the first 20 episodes averaged ~8k with a max of ~23k. Every training step logs `tokens/train_total_max`. To cap it: `data.max_context_years=8`, a smaller `data.max_points`, or a shorter `data.window_days`.
+See [`nanotabicl/README.md`](nanotabicl/README.md): build the processed table with
+`process_wofost_dataset.py --locations-csv ...` (Parquet, one row per location × year × jitter),
+download/convert the official checkpoint (`python -m nanotabicl.checkpoint`), then
+`python -m nanotabicl.train` and `python -m nanotabicl.evaluate`.
 
 ### Google Earth Engine setup
 

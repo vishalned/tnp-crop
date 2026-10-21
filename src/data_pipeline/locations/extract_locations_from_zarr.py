@@ -62,6 +62,21 @@ def worldcereal_calendar_season() -> dict:
     return {"maize": "tc-maize-main", "wheat": "tc-wintercereals"}
 
 
+def worldcereal_calendar_columns() -> list:
+    """Columns of the Zarr's `crop_calendar` array, in order.
+
+    CropFM's `save2zarr.py` writes the six values in this fixed order, but
+    the `variable_names` array stored next to them is the modality's seven
+    names cut to six (`aez_id`, `tc-maize-main_sos`, ...), i.e. shifted by
+    one. So the names are hardcoded here instead of read from the Zarr.
+    """
+    return [
+        "tc-maize-main_sos", "tc-maize-main_eos",
+        "tc-wintercereals_sos", "tc-wintercereals_eos",
+        "tc-springcereals_sos", "tc-springcereals_eos",
+    ]
+
+
 def _decode_strings(df: pd.DataFrame) -> pd.DataFrame:
     for col in df.columns:
         if df[col].dtype.kind in ("S", "O", "U"):
@@ -92,9 +107,9 @@ def load_locations_from_zarr(zarr_path: str) -> pd.DataFrame:
 
     try:
         calendar = store["static_modalities/worldcereal_cropcalendar/crop_calendar"][:].astype(float)
-        names = [str(n) for n in store["static_modalities/worldcereal_cropcalendar/variable_names"][:]]
         calendar[calendar < 0] = np.nan  # -1 = missing
-        for i, name in enumerate(names):
+        df["aez_id"] = store["static_modalities/worldcereal_cropcalendar/aez_id"][:]
+        for i, name in enumerate(worldcereal_calendar_columns()):
             df[name] = calendar[:, i]
     except KeyError:
         pass

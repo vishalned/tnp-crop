@@ -133,7 +133,7 @@ Produced by `generate_gee_soil_file.py` from the GEE SoilGrids pull, via
 See `default_soilgrid_d_factors()` for the raw-SoilGrids-integer → these
 units conversion factors.
 
-## Processed training table (`data/processed/wofost_{crop}_daily.csv`)
+## Processed training table (`data/processed/wofost_{crop}_daily.parquet`)
 
 Built by `src/data_pipeline/wofost/process_wofost_dataset.py` from a batch
 run's `dataset_manifest.csv` (successful episodes only), the episodes'
@@ -147,17 +147,23 @@ harvested Jul 2014 has `year = 2014`, `sowing_year = 2013`.
 
 | Column(s) | Meaning |
 |---|---|
-| `sample_id`, `location_index`, `location_id`, `crop`, `year`, `sowing_year`, `jitter_index` | Identifiers (`location_id` = `"{lon}_{lat}"`; `sample_id` = `"{lon}_{lat}_{crop}_{year}_j{jitter_index}"`) — each location/year has several sowing-date jitters |
-| `latitude`, `longitude`, `awc`, `bulk_density` | Static features (soil ones from the topsoil, as in the summary JSON) |
-| `sos_doy` | Nominal start-of-season day of year for the crop (`default_sowing_doy()`, stand-in for the WorldCereal SOS) |
+| `sample_id`, `location_index`, `location_id`, `country` (with `--locations-csv`), `crop`, `year`, `sowing_year`, `jitter_index` | Identifiers (`location_id` = `"{lon}_{lat}"`; `sample_id` = `"{lon}_{lat}_{crop}_{year}_j{jitter_index}"`) — each location/year has several sowing-date jitters |
+| `latitude`, `longitude`, `awc` (cm/m = 100 × the summary's m³/m³, WISE's unit), `bulk_density` (g/cm³) | Static features (soil ones from the topsoil) |
+| `sos_doy`, `eos_doy` | Crop calendar start/end of season (day of year): the location's WorldCereal SOS/EOS from the manifest (older runs without a calendar: `sos_doy` = `default_sowing_doy()`, `eos_doy` empty) |
 | `sowing_doy`, `sowing_date`, `sowing_offset_days` | Actual (jittered) sowing day, and its offset from the nominal season start |
 | `maturity_date`, `season_length_days`, `reached_maturity` | When DVS reached 2 (metadata — not known at forecast time, don't use as an input feature) |
-| `window_start` | Date of day 0 of the time series |
+| `window_start`, `window_end` | Dates of day 0 and of the last day of this row's window (`calendar`: SOS − 60 and EOS; later days are NaN) |
 | `yield_t_per_ha` / `yield_kg_per_ha` | **Target**: `TWSO` (storage-organ dry matter) at maturity |
 | `{feature}_d{k:03d}` | Daily time series (unaggregated), day `k` counted from `window_start` |
 
-Day 0 is `--pre-season-days` (default 30) before the anchor: the crop's
-nominal season start that year (`--align season_start`, default) or the
+`--align calendar` (default): the window is CY-Bench's feature window,
+`[SOS − 60 days, EOS]` from the row's crop calendar (`--pre-season-days`,
+default 60); every row has the crop's longest window's number of day columns,
+NaN after its own EOS. Needs a run with a calendar (manifest
+`sos_doy`/`eos_doy`, see `generate_wofost_dataset.py`).
+
+Otherwise day 0 is `--pre-season-days` (default 30) before the anchor: the crop's
+nominal season start that year (`--align season_start`) or the
 actual sowing date (`--align sowing`). The anchor is at index
 `anchor_day_index` in the columns JSON. Every row of a crop has
 `pre_season_days + max_duration` days (wheat: 30 + 365 = 395), independent
@@ -167,24 +173,17 @@ of when the crop matured.
 |---|---|---|
 | `tmin`, `tmax`, `tavg` | weather cache | °C |
 | `prec` | weather cache (`RAIN`) | mm/day |
-| `rad` | weather cache (`IRRAD`) | MJ/m²/day |
+| `rad` | weather cache (`IRRAD`) | J/m²/day (AgERA5's unit) |
 | `et0` | weather cache (`ET0`) | mm/day |
 | `cwb` | `prec - et0` | mm/day |
-| `fpar` | daily WOFOST CSV | fraction; 0 before sowing and after maturity (bare field) |
-| `ssm` | daily WOFOST CSV (`SM_layer0`) | cm³/cm³; NaN before sowing and after maturity (not simulated) |
+| `fpar` | daily WOFOST CSV | % (0–100, JRC FPAR's unit); 0 before sowing and after maturity (bare field) |
+| `ssm` | daily WOFOST CSV: `10 × (WC_layer0 + ½ WC_layer1)` | kg/m² of water in 0–10 cm (GLDAS's surface layer) |
+| `rsm` | daily WOFOST CSV: `10 × Σ WC_layer0..4` | kg/m² of water in 0–100 cm (GLDAS's root zone) |
+
+Soil moisture exists for the whole window in calendar runs (the water
+balance runs from SOS − 60 days, bare soil before sowing and after
+maturity); in older runs that stopped at maturity it is NaN outside the
+crop's life.
 
 Note: WOFOST's `TWSO` is dry matter, while reported (e.g. CYBench) yields
 are usually at a standard moisture content, so absolute levels differ.
-
-## TNP training store (`data/processed/tnp_store_{crop}/`)
-
-Built by `src/data_pipeline/wofost/build_training_store.py`; read by
-`src/data/crop_datamodule.py`.
-
-| File | Contents |
-|---|---|
-| `points.csv` | One row per location: `point_id` (0..N-1, row order), `location_index` (batch runner), `country`, `zarr_index`, `longitude`, `latitude`, `crop`; statics from the CropFM zarr: `clay_0..2`, `nitrogen_0..2`, `ph_0..2`, `soc_0..2` (layers 0-5 / 5-15 / 15-30 cm, raw SoilGrids values), `elevation`, `slope`; `water_holding_capacity` = topsoil `awc` from the WOFOST runs. |
-| `seasons.csv` | One row per successful episode (point × `season_year` (= sowing year) × `jitter_index`): `sowing_date`, `season_start` (nominal start of season = sowing date − sowing offset), `flowering_date`/`maturity_date` (first day DVS ≥ 1 / ≥ 2, empty if never reached), `flowering_days`/`maturity_days` (days after `season_start`), `reached_maturity`, `yield_t_per_ha` (TWSO), `harvest_year`. |
-| `weather.npy` | float32 `[num_points, num_days, 6]`, daily `tmin`, `tmax` (°C), `precip` (mm/day), `radiation` (MJ/m²/day), `wind` (m/s at 2 m), `humidity` (vapour pressure, hPa), on the date axis starting at `weather_meta.json`'s `start_date`. One copy per location: all jitters share the weather. |
-
-Tokens built from it (per episode): `(coordinate [lat, lon, t, depth], modality_id, value)` with `t` in days since 2000-01-01 and the fixed modality vocabulary in `src/data/components/crop_vocab.py`. Weather tokens are bucket aggregates (mean for tmin/tmax/wind/humidity, sum for precip/radiation) placed at the bucket centre; static tokens at `t = 0` with `depth` = layer mid-depth (cm) for soil layers; label tokens (yield, phenology) at their season's `season_start`, phenology values in days after it. All values are z-scored with train-pool statistics (weather per bucket length).

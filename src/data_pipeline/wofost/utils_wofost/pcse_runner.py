@@ -135,6 +135,10 @@ def merge_weather_and_derive_features(
     - `ssm` = WOFOST's simulated topsoil `SM` (`SM_layer0`, the shallowest
       multi-layer waterbalance layer) -- closest available match to
       CYBench's satellite-derived surface soil moisture
+
+    When the campaign starts before sowing or runs past maturity (see
+    `agromanagement.build_agromanagement`), the crop columns (DVS, LAI, ...)
+    are empty on those days while the soil columns (SM, WC) are simulated.
     """
     weather_df = weather_provider_to_dataframe(weather_data_provider, latitude, longitude)
     weather_cols = ["day", "TMIN", "TMAX", "TEMP", "RAIN", "IRRAD", "ET0"]
@@ -143,7 +147,12 @@ def merge_weather_and_derive_features(
     merged["cwb"] = merged["RAIN"] - merged["ET0"]
 
     k_diftb = Afgen(params["KDIFTB"])
-    merged["fpar"] = merged.apply(lambda row: 1.0 - math.exp(-k_diftb(row["DVS"]) * row["LAI"]), axis=1)
+    dvs = pd.to_numeric(merged["DVS"], errors="coerce")
+    lai = pd.to_numeric(merged["LAI"], errors="coerce")
+    # No crop before sowing / after maturity (DVS, LAI missing): bare field, fpar 0.
+    merged["fpar"] = [
+        1.0 - math.exp(-k_diftb(d) * l) if pd.notna(d) and pd.notna(l) else 0.0 for d, l in zip(dvs, lai)
+    ]
 
     merged["ssm"] = merged["SM_layer0"]
 
