@@ -57,7 +57,8 @@ one setting also share all other draws: B and C have the same cultivars and sowi
   from the topsoil's pF curve. In PP the soil stays at field capacity, so they don't limit growth.
 - **Irrigated share:** read from `irrigation_share_csv` (`region_id,irrigated_share`, region = the
   locations CSV's `country` column by default). **There is no MIRCA2000 data yet**, so datasets D/E use a
-  placeholder `default_irrigated_share: 0.15` for every region.
+  placeholder `default_irrigated_share: 0.5` for every region: each world is irrigated (PP) or rain-fed (WLP)
+  with equal probability.
 
 ## Filtering broken worlds
 
@@ -81,6 +82,12 @@ and `process_wofost_dataset` leaves rejected worlds out.
 | E | D + `extra_locations_csvs` (none yet; new locations need GEE downloads) |
 
 All have the same locations (`max_locations: 1585` = the cached ones; E: all), years and seed.
+
+**Why staged.** Each dataset adds one source of variation to the previous one, and the shared random
+streams keep everything else identical. So a change in a check or in downstream model performance from
+one dataset to the next can be attributed to that one addition (e.g. C vs B = the parameter factors
+only). E is the intended full pretraining dataset; A–D are ablation steps on the way. D (not E) is the
+largest one that needs no new GEE downloads.
 
 ```bash
 uv run python -m src.data_pipeline.wofost.generate_worlds_dataset --config configs/wofost_worlds/dataset_C.yaml \

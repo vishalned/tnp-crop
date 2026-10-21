@@ -28,5 +28,5 @@ rdmcr_step_cm: 5
 irrigation: true
 irrigation_share_csv: null       # CSV: region_id,irrigated_share (e.g. MIRCA2000 per country)
 irrigation_region_column: country
-default_irrigated_share: 0.15    # placeholder for every region until the CSV exists
+default_irrigated_share: 0.5     # placeholder: half the worlds irrigated (PP), half rain-fed, every region
 extra_locations_csvs: []         # e.g. [data/raw/locations/locations_maize_extra.csv]
