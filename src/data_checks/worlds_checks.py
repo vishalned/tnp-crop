@@ -20,7 +20,6 @@ processed table). Writes to `--out` and prints:
 """
 
 import argparse
-import datetime
 import os
 
 import matplotlib
@@ -82,7 +81,7 @@ def check2(manifests: pd.DataFrame) -> pd.DataFrame:
                      "sos_doy_median": g["sos_doy"].median(), "eos_doy_median": g["eos_doy"].median(),
                      **{f"flowering_doy_{q}": g["flowering_doy"].quantile(p) for q, p in (("p10", .1), ("p50", .5), ("p90", .9))},
                      **{f"maturity_doy_{q}": g["maturity_doy"].quantile(p) for q, p in (("p10", .1), ("p50", .5), ("p90", .9))},
-                     "matured_by_eos": float(np.mean([isinstance(d, datetime.date) and d <= e for d, e in zip(mat, eos)]))})
+                     "matured_by_eos": float(np.mean([pd.notna(d) and d <= e for d, e in zip(mat, eos)]))})
     return pd.DataFrame(rows)
 
 
