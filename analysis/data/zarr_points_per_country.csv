@@ -1,0 +1,41 @@
+country,zarr_all_points,zarr_maize_mask,zarr_wheat_mask,locations_maize_csv,simulated_maize_first_1585
+Ukraine,330860,68415,93941,0,0
+France,113190,17885,57854,5192,1202
+Poland,84870,13690,37146,0,0
+Spain,77150,3658,48741,0,0
+Germany,71760,14234,35840,4119,0
+Romania,69650,17311,23422,0,0
+Italy,45480,10050,18210,0,0
+Hungary,41190,11975,13477,0,0
+Bulgaria,32510,5922,13821,0,0
+United Kingdom,26750,754,12893,213,0
+Belarus,22440,3725,7044,0,0
+Moldova,21250,4598,5978,0,0
+Serbia,19580,7165,4940,0,0
+Czechia,18520,2534,7308,0,0
+Lithuania,14650,268,7114,0,0
+Slovakia,11440,2757,3831,0,0
+Greece,11390,1179,3855,0,0
+Austria,10570,2217,4033,0,0
+Denmark,10240,595,4635,159,159
+Croatia,7950,2944,2131,0,0
+Belgium,5050,825,1878,224,224
+Netherlands,4050,356,953,92,0
+Sweden,4000,37,1774,0,0
+Latvia,3400,46,1795,0,0
+Portugal,2110,428,614,0,0
+Cyprus,2070,1,885,0,0
+Macedonia,1780,121,1059,0,0
+Bosnia & Herzegovina,1080,457,257,0,0
+Slovenia,910,364,330,0,0
+Switzerland,680,93,300,0,0
+Kosovo,610,51,329,0,0
+Albania,430,41,87,0,0
+Dhekelia,200,0,74,0,0
+Estonia,180,3,76,0,0
+Ireland,160,2,98,1,0
+Akrotiri,30,0,13,0,0
+Spain (Canary Is),30,0,0,0,0
+Portugal (Madeira Is),20,0,0,0,0
+No Man's Land,20,1,11,0,0
+Malta,10,0,0,0,0
