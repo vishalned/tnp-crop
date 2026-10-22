@@ -81,6 +81,10 @@ The column-by-column description of the files is in
 - **Sampling** (`sample_locations`): optional country filter (names or the
   group `nw_europe`), then `-n` random points in total or per country
   (`--per-country`), with `--seed`.
+- **Spatially even alternative** ([`grid_sample_locations.py`](../src/data_pipeline/locations/grid_sample_locations.py)):
+  crop points in the EU (`eu27` group, minus `--holdout-countries`), one random point per 0.1° cell, at
+  most `--max-cells-per-block` cells per 1° block, then `-n` cells at random (all seeded); writes
+  `locations_{crop}_eu_grid.csv` (same columns + `cell_id`, `block_id`) and a per-country count table.
 - **Output:** `data/raw/locations/locations_{crop}.csv`. **Its row number is
   the `location_index`** used everywhere downstream; the processing step joins
   the `country` column back on that row number.

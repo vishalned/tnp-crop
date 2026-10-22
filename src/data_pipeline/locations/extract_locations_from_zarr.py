@@ -47,6 +47,12 @@ def default_country_groups() -> dict:
             "Luxembourg",
             "Denmark",
         ],
+        # the 27 EU member states, spelled as in the CropFM Zarr's `country`
+        "eu27": [
+            "Austria", "Belgium", "Bulgaria", "Croatia", "Cyprus", "Czechia", "Denmark", "Estonia", "Finland",
+            "France", "Germany", "Greece", "Hungary", "Ireland", "Italy", "Latvia", "Lithuania", "Luxembourg",
+            "Malta", "Netherlands", "Poland", "Portugal", "Romania", "Slovakia", "Slovenia", "Spain", "Sweden",
+        ],
     }
 
 
