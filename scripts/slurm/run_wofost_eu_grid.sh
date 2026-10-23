@@ -2,7 +2,8 @@
 # EU grid locations (grid_sample_locations.py: one point per 0.1 deg maize cell, 2000 cells): download soil
 # and weather from Earth Engine, simulate WOFOST (same settings as wofost_calendar: 2005-2020, 3 sowing
 # jitters, seed 42) and build the processed table, in one job:
-#   MAX_LOCATIONS=20 RUN=wofost_eu_grid_test sbatch scripts/slurm/run_wofost_eu_grid.sh   # small test first
+#   sbatch --export=ALL,MAX_LOCATIONS=20,RUN=wofost_eu_grid_test scripts/slurm/run_wofost_eu_grid.sh   # small test
+# (settings must go through --export: plain `VAR=x sbatch ...` did not reach the job on this cluster)
 #   sbatch scripts/slurm/run_wofost_eu_grid.sh                                            # all locations
 # WORKERS = parallel locations = parallel Earth Engine requests; keep it modest. Re-running resumes from
 # the soil/weather caches (data/raw/soilgrids_gee, data/raw/weather), so a timed-out job can be resubmitted.
