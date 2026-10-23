@@ -82,9 +82,10 @@ The column-by-column description of the files is in
   group `nw_europe`), then `-n` random points in total or per country
   (`--per-country`), with `--seed`.
 - **Spatially even alternative** ([`grid_sample_locations.py`](../src/data_pipeline/locations/grid_sample_locations.py)):
-  crop points in the EU (`eu27` group, minus `--holdout-countries`), one random point per 0.1° cell, at
-  most `--max-cells-per-block` cells per 1° block, then `-n` cells at random (all seeded); writes
-  `locations_{crop}_eu_grid.csv` (same columns + `cell_id`, `block_id`) and a per-country count table.
+  crop points in the EU (`eu27` group, minus `--holdout-countries`), one random point per 0.1° cell
+  (cells centred on multiples of 0.1°, like ERA5-Land, so one cell = one weather pixel), then `-n` cells
+  at random (seeded). Locations follow where the crop is grown. Writes
+  `locations_{crop}_eu27_cell01_n{n}_s{seed}.csv` (same columns + `cell_id`) and a per-country count table.
 - **Output:** `data/raw/locations/locations_{crop}.csv`. **Its row number is
   the `location_index`** used everywhere downstream; the processing step joins
   the `country` column back on that row number.

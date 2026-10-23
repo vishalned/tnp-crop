@@ -1,19 +1,20 @@
-"""Spatially even simulation locations: one point per 0.1 deg maize cell (~10 km), sampled over the EU.
+"""Spatially even simulation locations: one point per 0.1 deg maize cell (one ERA5-Land pixel), over the EU.
 
-    uv run python -m src.data_pipeline.locations.grid_sample_locations --crop maize -n 2000 \
-        --max-cells-per-block 5 --seed 42 [--holdout-countries ...] [-o data/raw/locations/locations_maize_eu_grid.csv]
+    uv run python -m src.data_pipeline.locations.grid_sample_locations --crop maize -n 2000 --seed 42 \
+        [--holdout-countries ...] [-o data/raw/locations/locations_maize_eu27_cell01_n2000_s42.csv]
 
 Steps (only the grid is used, nothing from any benchmark):
 
-1. Points WorldCereal maps as the crop, in the `--countries` (default `eu27`), minus `--holdout-countries`.
-2. Each point goes to its 0.1 deg x 0.1 deg cell (`cell_id`); one random point per cell is kept, so every
-   cell where the crop grows counts once, whatever the number of reference points in it.
-3. Optional: at most `--max-cells-per-block` random cells per 1 deg x 1 deg block (`block_id`), so dense
-   crop belts don't dominate.
-4. If more cells are left than `-n`, `-n` cells are sampled uniformly at random.
+1. Points WorldCereal maps as the crop, in the `--countries` (default `eu27`), minus `--holdout-countries`
+   and points without a crop calendar.
+2. Each point goes to its 0.1 deg cell (`cell_id`). Cells are centred on multiples of 0.1 deg, like the
+   ERA5-Land grid, so one cell = one weather pixel. One random point per cell is kept, so every cell where
+   the crop grows counts once, whatever the number of reference points in it.
+3. If more cells are left than `-n`, `-n` cells are sampled uniformly at random. Locations then follow
+   where the crop is grown, spread evenly in space.
 
 All random choices use `--seed`. The output has the same columns as `extract_locations_from_zarr.py`'s
-CSV (so `generate_wofost_dataset.py` reads it unchanged) plus `cell_id` and `block_id`. A sibling
+CSV (so `generate_wofost_dataset.py` reads it unchanged) plus `cell_id`. A sibling
 `<output>_per_country.csv` counts the points per country at every step.
 """
 
@@ -32,30 +33,24 @@ from src.data_pipeline.locations.extract_locations_from_zarr import (
 ZARR_PATH = "/projects/prjs1788/CropFM/europe_data_1200_merged_cleaned2_rechunked.zarr"
 
 
-def grid_ids(lat: pd.Series, lon: pd.Series, size_deg: float) -> pd.Series:
-    """Cell id `"<lat index>_<lon index>"` of the `size_deg` grid cell containing each point."""
-    i = np.floor(lat.to_numpy() / size_deg + 1e-9).astype(int)
-    j = np.floor(lon.to_numpy() / size_deg + 1e-9).astype(int)
+def cell_ids(lat: pd.Series, lon: pd.Series, size_deg: float) -> pd.Series:
+    """Id `"<lat index>_<lon index>"` of the `size_deg` cell (centred on multiples of `size_deg`) of each point."""
+    i = np.round(lat.to_numpy() / size_deg).astype(int)
+    j = np.round(lon.to_numpy() / size_deg).astype(int)
     return pd.Series([f"{a}_{b}" for a, b in zip(i, j)], index=lat.index)
 
 
-def grid_sample(points: pd.DataFrame, num_cells: int, max_cells_per_block: int, seed: int,
-                cell_deg: float = 0.1, block_deg: float = 1.0) -> dict:
-    """Steps 2-4 of the module docstring. Returns the points after each step."""
+def grid_sample(points: pd.DataFrame, num_cells: int, seed: int, cell_deg: float = 0.1) -> dict:
+    """Steps 2-3 of the module docstring. Returns the points after each step."""
     rng = np.random.default_rng(seed)
-    points = points.assign(cell_id=grid_ids(points["latitude"], points["longitude"], cell_deg),
-                           block_id=grid_ids(points["latitude"], points["longitude"], block_deg))
-    shuffled = points.iloc[rng.permutation(len(points))]
-    cells = shuffled.drop_duplicates("cell_id")  # one random point per cell
-    capped = cells
-    if max_cells_per_block:
-        capped = cells[cells.groupby("block_id").cumcount() < max_cells_per_block]  # cells are in random order
-    selected = capped
-    if num_cells and len(capped) > num_cells:
-        selected = capped.iloc[np.sort(rng.choice(len(capped), num_cells, replace=False))]
+    points = points.assign(cell_id=cell_ids(points["latitude"], points["longitude"], cell_deg))
+    cells = points.iloc[rng.permutation(len(points))].drop_duplicates("cell_id")  # one random point per cell
+    selected = cells
+    if num_cells and len(cells) > num_cells:
+        selected = cells.iloc[np.sort(rng.choice(len(cells), num_cells, replace=False))]
     order = ["country", "zarr_index"]
     return {name: df.sort_values(order).reset_index(drop=True)
-            for name, df in (("points", points), ("cells", cells), ("capped", capped), ("selected", selected))}
+            for name, df in (("points", points), ("cells", cells), ("selected", selected))}
 
 
 def main():
@@ -65,12 +60,10 @@ def main():
     p.add_argument("--countries", nargs="+", default=["eu27"], help="Country names or groups (default eu27).")
     p.add_argument("--holdout-countries", nargs="+", default=[], help="Countries left out entirely.")
     p.add_argument("-n", "--num-cells", type=int, default=2000, help="Cell budget; 0 keeps every cell.")
-    p.add_argument("--max-cells-per-block", type=int, default=5, help="Cap per 1 deg block; 0 = no cap.")
     p.add_argument("--cell-deg", type=float, default=0.1)
-    p.add_argument("--block-deg", type=float, default=1.0)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("-o", "--output-csv", default=None,
-                   help="Default: data/raw/locations/locations_{crop}_eu_grid.csv")
+                   help="Default: data/raw/locations/locations_{crop}_eu27_cell01_n{n}_s{seed}.csv")
     args = p.parse_args()
 
     zarr = load_locations_from_zarr(args.zarr_path)
@@ -81,8 +74,8 @@ def main():
     print(f"{len(points):,} {args.crop} points; dropping {int(no_calendar.sum()):,} without a crop calendar.")
     points = points[~no_calendar]
 
-    steps = grid_sample(points, args.num_cells, args.max_cells_per_block, args.seed, args.cell_deg, args.block_deg)
-    output = args.output_csv or os.path.join(DEFAULT_LOCATIONS_DIR, f"locations_{args.crop}_eu_grid.csv")
+    steps = grid_sample(points, args.num_cells, args.seed, args.cell_deg)
+    output = args.output_csv or os.path.join(DEFAULT_LOCATIONS_DIR, f"locations_{args.crop}_eu27_cell01_n{args.num_cells}_s{args.seed}.csv")
     os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
     steps["selected"].to_csv(output, index=False)
 
@@ -91,8 +84,7 @@ def main():
         f"zarr_{args.crop}_points": zarr[zarr["worldcereal_crop_mask"] == points["worldcereal_crop_mask"].iloc[0]]
         ["country"].value_counts(),
         **{f"{name}": df["country"].value_counts() for name, df in steps.items()},
-    }).fillna(0).astype(int).rename(columns={"points": "eu_points", "cells": "cells_0.1deg",
-                                             "capped": "cells_after_block_cap"})
+    }).fillna(0).astype(int).rename(columns={"points": "eu_points", "cells": "cells_0.1deg"})
     counts = counts.sort_values(["selected", f"zarr_{args.crop}_points"], ascending=False).rename_axis("country")
     counts.to_csv(output.replace(".csv", "_per_country.csv"))
     print(counts.to_string())
