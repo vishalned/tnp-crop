@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Optional
 
 import pandas as pd
@@ -24,17 +25,21 @@ SOIL_ASSETS = {
 }
 
 
+EE_PROJECT_DEFAULT = "helical-kayak-399407"  # Cloud project ID (not the display name)
+
+
 def ensure_ee_initialized() -> None:
     """Initialize the Earth Engine client if it isn't already (idempotent).
     Assumes `ee.Authenticate()` has already been run once, outside this
-    codebase, per the user's own GEE project setup.
+    codebase, per the user's own GEE project setup. The Cloud project is
+    `$EE_PROJECT`, default `EE_PROJECT_DEFAULT`.
     """
     import ee
 
     try:
         ee.Number(1).getInfo()
     except Exception:
-        ee.Initialize(project='cropfm')
+        ee.Initialize(project=os.environ.get("EE_PROJECT", EE_PROJECT_DEFAULT))
 
 
 def soil(cfg: Optional[DictConfig], point, **kwargs) -> dict:

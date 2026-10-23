@@ -48,7 +48,7 @@ sbatch scripts/slurm/run_gpu.sh                    # GPU training + test eval on
 
 ## Setup prerequisites (one-time, per machine)
 
-- **Earth Engine:** authenticate from inside Python in the uv env (`ee.Authenticate()`); the shell `earthengine authenticate` is unreliable. `ensure_ee_initialized()` uses project `"cropfm"`.
+- **Earth Engine:** authenticate from inside Python in the uv env (`ee.Authenticate()`); the shell `earthengine authenticate` is unreliable. `ensure_ee_initialized()` uses the Cloud project `$EE_PROJECT` (default `helical-kayak-399407`, display name "cropfm"; use the project **ID**). Credentials live in `~/.config/earthengine/credentials`; if the notebook auth page lists no projects, run `ee.Authenticate(auth_mode="localhost")` on a laptop and copy that file over.
 - **Crop parameters:** a local clone, not fetched at runtime, from the `herman-berghuijs` fork (has the C4/maize fix): `git clone -b wofost81 https://github.com/herman-berghuijs/WOFOST_crop_parameters.git data/crop_parameters/wofost81`. `data/` is gitignored.
 
 ## Key concepts that span files
