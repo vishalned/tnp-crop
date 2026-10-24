@@ -30,7 +30,12 @@ from scipy.stats import ks_2samp, wasserstein_distance
 from nanotabicl.cybench_check import benchmark_feature_table
 from nanotabicl.cybench_features import STATIC_FEATURES, cybench_features, variable_of
 
-WOFOST_COUNTRIES = {"Belgium": "BE", "France": "FR", "Denmark": "DK", "Germany": "DE", "Netherlands": "NL"}
+WOFOST_COUNTRIES = {  # locations CSV country name -> CY-Bench country code
+    "Austria": "AT", "Belgium": "BE", "Bulgaria": "BG", "Croatia": "HR", "Czechia": "CZ", "Denmark": "DK",
+    "France": "FR", "Germany": "DE", "Greece": "EL", "Hungary": "HU", "Italy": "IT", "Latvia": "LV",
+    "Lithuania": "LT", "Netherlands": "NL", "Poland": "PL", "Portugal": "PT", "Romania": "RO", "Slovakia": "SK",
+    "Slovenia": "SI", "Spain": "ES", "Sweden": "SE",
+}
 
 
 def load_wofost(path: str, horizon: str = "eos") -> pd.DataFrame:
