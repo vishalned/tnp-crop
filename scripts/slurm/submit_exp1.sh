@@ -2,6 +2,8 @@
 # exp_1: WOFOST vs SCM-prior control on all European maize countries of CY-Bench.
 #
 #   bash scripts/slurm/submit_exp1.sh          # run on a login node: it only calls sbatch
+#   EXP=exp_1_eu_grid TABLE=/projects/prjs1788/tnp-crop/wofost_eu_grid/processed/wofost_maize_daily.parquet \
+#       bash scripts/slurm/submit_exp1.sh      # same experiment on another WOFOST table (scaling: EU grid)
 #
 # Training: continued pretraining of the official TabICLv2 weights, 3 seeds each for WOFOST tables
 #   and the SCM control (prior tables with the WOFOST batches' shapes; seed N of both draws the same
@@ -18,7 +20,8 @@
 set -euo pipefail
 REPO=/gpfs/home2/vnedungadi/tnp-crop
 BENCH=/gpfs/home2/vnedungadi/AgML-CY-Bench-Modeling
-EXP=exp_1
+EXP=${EXP:-exp_1}
+TABLE=${TABLE:-/projects/prjs1788/tnp-crop/processed/wofost_maize_daily.parquet}  # WOFOST table (also sets the SCM control's shapes)
 TRAIN_ROOT=/projects/prjs1788/tnp-crop/nanotabicl/$EXP
 BENCH_ROOT=/projects/prjs1788/tnp-crop/cybench_output/$EXP
 LOGS=$REPO/slurm_logs/$EXP
@@ -38,7 +41,7 @@ job=$(europe "" tabicl_default_single ",MODEL=tabicl" model.n_estimators=1)
 echo "benchmark tabicl default single: $job"
 eval_jobs+=("$job")
 
-COMMON="STEPS=2000,STOP_AT=2000,LR=1e-5,WD=0.01,WARMUP_FRAC=0.1,EVAL=last.pt"
+COMMON="STEPS=2000,STOP_AT=2000,LR=1e-5,WD=0.01,WARMUP_FRAC=0.1,EVAL=last.pt,TABLE=$TABLE"
 for data in crop prior-matched; do
     name=$([ "$data" = crop ] && echo wofost || echo scm)
     for seed in $SEEDS; do
