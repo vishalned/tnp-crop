@@ -19,7 +19,7 @@ P=/projects/prjs1788/tnp-crop
 CYBENCH=/projects/prjs1788/CropBench/data/cybench/cybench-data
 COUNTRIES="NL FR DE PL ES IT AT BE BG CZ DK EL HR HU LT RO SE SK"   # the 18 countries of exp_1
 
-uv run python -m src.data_checks.season_sanity \
+[ -f analysis/scaling/sanity/sanity_per_country.csv ] || uv run python -m src.data_checks.season_sanity \
     --run old $P/wofost_calendar/dataset_manifest.csv data/raw/locations/locations_maize.csv \
     --run new $P/wofost_eu_grid/dataset_manifest.csv data/raw/locations/locations_maize_eu27_cell01_n2000_s42.csv \
     --out analysis/scaling/sanity --workers $SLURM_CPUS_PER_TASK

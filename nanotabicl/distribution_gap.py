@@ -219,7 +219,8 @@ def main():
         features = [f for f in features if f in d.columns]
     features += ["yield"]
 
-    hist_grid({"WOFOST (all)": wofost, **{f"CY-Bench {cc}": d for cc, d in cybench.items()}}, features,
+    shown = dict(list(cybench.items())[:4])  # the overview has 4 outline colours; per-country plots below cover all
+    hist_grid({"WOFOST (all)": wofost, **{f"CY-Bench {cc}": d for cc, d in shown.items()}}, features,
               os.path.join(args.out, "hist_wofost_all_vs_cybench.png"),
               f"{args.crop}, {args.horizon}: WOFOST (all simulated seasons) vs CY-Bench countries (raw units)")
     comparisons = {f"WOFOST all vs CY-Bench {cc}": (wofost, d) for cc, d in cybench.items()}
