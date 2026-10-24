@@ -269,7 +269,8 @@ def process_wofost_dataset(
 
     features = default_timeseries_features()
 
-    manifest = pd.read_csv(manifest_path)
+    # round_trip: the default parser can be one ulp off, and the coordinates name the weather cache files
+    manifest = pd.read_csv(manifest_path, float_precision="round_trip")
     episodes = manifest[manifest["status"] == "success"]
     print(f"{len(episodes)}/{len(manifest)} successful episodes in {manifest_path}.")
     num_days = {}  # crop -> number of day columns (calendar: the longest window)
