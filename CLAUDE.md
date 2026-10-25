@@ -9,7 +9,7 @@ Crop-yield prediction from WOFOST-simulated growing seasons. Parts of the repo:
 1. **Data pipeline** (`src/data_pipeline/`, `src/data_checks/`) — picks locations, pulls soil (SoilGrids) and weather (ERA5-Land) from Google Earth Engine, runs WOFOST via PCSE, and turns the runs into one training table per crop.
 2. **Models**: `nanotabicl/`, self-contained plain-PyTorch NanoTabICLv2 (TabICLv2) training/evaluation. Does **not** use Hydra/Lightning; it only reads the processed Parquet table.
 3. **Template skeleton**: `src/train.py`, `src/eval.py`, `src/utils/`, `configs/` from the lightning-hydra-template, kept basic. The old TNP-D model/datamodule code was removed; `configs/data/tnp.yaml`, `configs/model/tnp.yaml` and `configs/experiment/tnp_synthetic.yaml` are kept for reference but point to removed modules, so `src/train.py` needs a new model/datamodule before it runs.
-4. **Analysis**: `analysis/plot_results.py` makes the result figures (`analysis/figures/`) from `docs/results_*.csv`.
+4. **Analysis**: `analysis/plot_results.py` makes the result figures (`analysis/figures/`) from `docs/results_*.csv`; `analysis/scaling/` has the EU grid (scaling) figures, described in `docs/scaling_report.md`.
 
 `docs/manual.md` is a full walkthrough of the pipeline end to end (with file/function pointers and known simplifications); `docs/data_dictionary.md` describes every column; `nanotabicl/README.md` covers the model side in detail. Read these before changing behavior in those areas, and keep them in sync when you do.
 

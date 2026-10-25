@@ -7,7 +7,7 @@ against the crop calendar. Compares several runs (e.g. the FR/BE/DK run and the 
         --out analysis/scaling/sanity --workers 16
 
 Reads every successful season's daily output (DVS) to get flowering (first day DVS >= 1) and maturity
-(first day DVS >= 2), so run it in a job. Writes `season_dates.csv` (one row per season),
+(first day DVS >= 2), so run it in a job. Writes `season_dates.csv.gz` (one row per season),
 `sanity_per_country.csv` and `sanity_per_country.png`. Dates are days relative to the location's crop
 calendar: sowing - SOS, flowering - SOS, maturity - EOS (EOS in the sowing year, or the next year when
 EOS < SOS, as in the runner).

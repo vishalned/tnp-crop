@@ -7,7 +7,8 @@ Reads the benchmark's per_run.csv of both experiments (`summarize_exp.py`) and w
 
 - `results_overview.png`: exp_1_eu_grid, default TabICL vs SCM control vs WOFOST, over the 18 countries;
 - `results_per_country.png`: exp_1_eu_grid, NRMSE minus default TabICL's, per country;
-- `results_vs_previous.png`: both experiments side by side (overview + per-country change vs TabICL).
+- `results_vs_previous_*.png`: both experiments side by side (overview + per-country change vs TabICL);
+- `decisive_test.png`: old table, old table subsampled to 466 locations, new table FR/BE/DK only, new table.
 
 It also copies the per_run.csv to `analysis/scaling/results_exp1_eu_grid_per_run.csv`.
 """
@@ -132,5 +133,64 @@ def main():
     print(f"wrote {OUT}")
 
 
+
+# ---------------------------------------------------------------- decisive test (old vs new pipeline)
+
+STEPS = [("exp_1", "old table, FR/BE/DK, 1,563 locations (exp_1)"),
+         ("exp_1_old_matched_466", "old table, subsampled to 421/22/23 locations"),
+         ("exp_1_eu_grid_frbedk", "new EU grid table, FR/BE/DK only (421/22/23)"),
+         ("exp_1_eu_grid", "new EU grid table, 18 countries (1,966)")]
+
+
+def decisive_test():
+    """WOFOST NRMSE vs default TabICL for the four training tables: overall and per country."""
+    frames = {}
+    for exp, _ in STEPS:
+        r = pd.read_csv(BENCH / exp / "per_run.csv")
+        r["seed"] = r["seed"].fillna(0).astype(int)
+        frames[exp] = r
+    ref = frames["exp_1"].query("setting == @TABICL").set_index("country")["nrmse"]
+    n = frames["exp_1"].groupby("country")["n_region_years"].first()
+    shades = ["#9ec5f4", "#5f9de6", "#2a78d6", "#14498a"]
+    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(13, 6.4), gridspec_kw={"width_ratios": [1, 1.3]})
+    for k, ((exp, label), color) in enumerate(zip(STEPS, shades)):
+        r = frames[exp]
+        for setting, marker, c in ((WOFOST_SET, "o", color), (SCM_SET, "s", SCM)):
+            per_seed = r[r["setting"] == setting].groupby("seed")["nrmse"].mean()
+            ax0.scatter(per_seed, np.full(len(per_seed), k + (0.15 if setting == SCM_SET else -0.15)), s=16,
+                        color=c, alpha=0.5, marker=marker, linewidths=0)
+            ax0.scatter([per_seed.mean()], [k + (0.15 if setting == SCM_SET else -0.15)], s=60, color=c,
+                        marker=marker, edgecolors="white", linewidths=1, zorder=3,
+                        label="SCM control" if (setting == SCM_SET and k == 0) else None)
+            if setting == WOFOST_SET:
+                ax0.annotate(f"{per_seed.mean():.4f}", (per_seed.mean(), k - 0.15), xytext=(0, -12),
+                             textcoords="offset points", ha="center", fontsize=8, color=INK2)
+        d = r[r["setting"] == WOFOST_SET].groupby("country")["nrmse"].mean() - ref
+        countries = n.sort_values(ascending=False).index
+        ax1.scatter(d.loc[countries], np.arange(len(countries)) + (k - 1.5) * 0.18, s=26, color=color,
+                    edgecolors="white", linewidths=0.5, zorder=3, label=label)
+    ax0.axvline(ref.mean(), color=REF, lw=1.5, ls="--", label=f"default TabICL ({ref.mean():.4f})")
+    ax0.set_yticks(range(len(STEPS)), [lbl for _, lbl in STEPS])
+    ax0.set_ylim(len(STEPS) - 0.5, -0.5)
+    ax0.set_xlabel("NRMSE, mean over 18 countries (lower is better)")
+    ax0.set_title("WOFOST (circles) and SCM control (squares), 3 seeds", loc="left")
+    ax0.legend(loc="lower right", fontsize=8)
+    ax0.grid(axis="y", visible=False)
+    ax1.axvline(0, color=INK2, lw=1)
+    ax1.set_yticks(np.arange(len(countries)), [f"{c} (n={n[c]})" for c in countries])
+    ax1.set_ylim(len(countries) - 0.5, -0.5)
+    ax1.grid(axis="y", visible=False)
+    ax1.set_xlabel("WOFOST NRMSE − default TabICL NRMSE (mean of 3 seeds)\n← better than TabICL")
+    ax1.set_title("per country, the four training tables (light → dark)", loc="left")
+    ax1.legend(loc="upper center", bbox_to_anchor=(0.45, -0.12), ncol=2, fontsize=8)
+    fig.suptitle("Where the WOFOST gain went: table size, location choice, added countries",
+                 x=0.0, ha="left", fontsize=11, color=INK)
+    fig.tight_layout()
+    fig.savefig(OUT / "decisive_test.png")
+    plt.close(fig)
+    print(f"wrote {OUT / 'decisive_test.png'}")
+
+
 if __name__ == "__main__":
     main()
+    decisive_test()
