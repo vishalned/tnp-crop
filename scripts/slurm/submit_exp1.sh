@@ -4,6 +4,8 @@
 #   bash scripts/slurm/submit_exp1.sh          # run on a login node: it only calls sbatch
 #   EXP=exp_1_eu_grid TABLE=/projects/prjs1788/tnp-crop/wofost_eu_grid/processed/wofost_maize_daily.parquet \
 #       bash scripts/slurm/submit_exp1.sh      # same experiment on another WOFOST table (scaling: EU grid)
+#   DATAS=crop       only the WOFOST runs (no SCM control);  AFTER=<jobid>  training waits for that job
+#   TRAIN_TIME / TRAIN_MEM  resources of the WOFOST training jobs (default 03:00:00 / 32G)
 #
 # Training: continued pretraining of the official TabICLv2 weights, 3 seeds each for WOFOST tables
 #   and the SCM control (prior tables with the WOFOST batches' shapes; seed N of both draws the same
@@ -26,6 +28,10 @@ TRAIN_ROOT=/projects/prjs1788/tnp-crop/nanotabicl/$EXP
 BENCH_ROOT=/projects/prjs1788/tnp-crop/cybench_output/$EXP
 LOGS=$REPO/slurm_logs/$EXP
 SEEDS=${SEEDS:-"0 1 2"}
+DATAS=${DATAS:-"crop prior-matched"}
+AFTER=${AFTER:-}
+TRAIN_TIME=${TRAIN_TIME:-03:00:00}
+TRAIN_MEM=${TRAIN_MEM:-32G}
 mkdir -p "$LOGS" "$TRAIN_ROOT"
 
 europe() {  # europe <dependency or ""> <tag> <extra env> <hydra overrides...>
@@ -42,18 +48,18 @@ echo "benchmark tabicl default single: $job"
 eval_jobs+=("$job")
 
 COMMON="STEPS=2000,STOP_AT=2000,LR=1e-5,WD=0.01,WARMUP_FRAC=0.1,EVAL=last.pt,TABLE=$TABLE"
-for data in crop prior-matched; do
+for data in $DATAS; do
     name=$([ "$data" = crop ] && echo wofost || echo scm)
     for seed in $SEEDS; do
         run=${name}_seed$seed
         if [ "$data" = crop ]; then
-            resources=(--time=03:00:00)
+            resources=(--time=$TRAIN_TIME --mem=$TRAIN_MEM)
             settings="ALL,$COMMON,DATA=crop,SEED=$seed,RUN=$EXP/$run"
         else  # prior generation is CPU-bound
             resources=(--time=04:00:00 --cpus-per-task=16)
             settings="ALL,$COMMON,DATA=prior-matched,WORKERS=14,SEED=$seed,RUN=$EXP/$run"
         fi
-        train=$(sbatch --parsable "${resources[@]}" --job-name="$EXP-$run" \
+        train=$(sbatch --parsable "${resources[@]}" ${AFTER:+--dependency=afterok:$AFTER} --job-name="$EXP-$run" \
             --output="$LOGS/train_${run}_%j.out" --error="$LOGS/train_${run}_%j.err" \
             --export="$settings" "$REPO/scripts/slurm/run_gpu.sh")
         job=$(europe "$train" "$run" "" "model.checkpoint=$TRAIN_ROOT/$run/last.pt")

@@ -1,0 +1,4 @@
+country,years,points,points_assigned,cybench_regions,regions,region_years,mean_simulated,mean_reported,bias,nrmse,spatial_r,temporal_r,anomaly_r
+BE,2005-2015,217,208,11,7,20,11.5717,11.259,0.3127,0.2085,0.2173,,
+DK,2005-2015,151,149,5,4,10,9.7553,5.524,4.2313,0.837,-0.4715,0.7454,
+FR,2005-2015,1195,1195,93,19,209,6.5228,9.1426,-2.6198,0.4709,-0.1313,0.3845,0.4059

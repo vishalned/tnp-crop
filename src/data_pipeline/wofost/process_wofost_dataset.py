@@ -50,6 +50,7 @@ from typing import Optional
 import pandas as pd
 import rootutils
 
+from src.data_pipeline.paths import PROCESSED_DIR
 from src.data_pipeline.soil.utils_soil.default_soil_variables import default_zs
 from src.data_pipeline.weather.utils_weather.gee_weather import (
     DEFAULT_WEATHER_CACHE_DIR,
@@ -64,7 +65,7 @@ from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import (
 
 
 root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-DEFAULT_PROCESSED_DIR = os.path.join(str(root), "data", "processed")
+DEFAULT_PROCESSED_DIR = PROCESSED_DIR
 
 
 def default_timeseries_features() -> dict:

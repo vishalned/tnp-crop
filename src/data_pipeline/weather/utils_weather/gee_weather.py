@@ -13,7 +13,9 @@ Request pattern: only the calendar years a run actually needs are fetched
 `ImageCollection.getRegion` calls of at most `DEFAULT_CHUNK_YEARS` years,
 plus one tiny call for elevation. They are merged into one cache file per
 location, `data/raw/weather/weather_{lon}_{lat}_gee_era5_land.csv`, so
-years shared between runs at that location are downloaded once. (A single
+years shared between runs at that location are downloaded once. A new location in an
+ERA5-Land pixel that already has a cache file reuses that file's daily values (they are the same
+for every point in the pixel) and only fetches its own elevation, see `era5_land_cell`. (A single
 call for ~25 years fails with Earth Engine's "User memory limit exceeded";
 chunks that still hit a memory limit or timeout are halved and retried.)
 
@@ -34,6 +36,7 @@ from pcse.base import WeatherDataProvider
 from pcse.exceptions import PCSEError
 from pcse.util import check_angstromAB, reference_ET, wind10to2
 
+from src.data_pipeline.paths import RAW_DIR
 from src.data_pipeline.soil.utils_soil.gee_soilgrids import ensure_ee_initialized
 from src.data_pipeline.weather.utils_weather.default_weather_variables import default_weather_start_date
 from pcse.base.weather import WeatherDataContainer
@@ -43,7 +46,7 @@ from src.data_pipeline.weather.utils_weather.openmeteo_weather import weather_pr
 log = logging.getLogger(__name__)
 
 _root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-DEFAULT_WEATHER_CACHE_DIR = os.path.join(str(_root), "data", "raw", "weather")
+DEFAULT_WEATHER_CACHE_DIR = os.path.join(RAW_DIR, "weather")
 
 ERA5_LAND_DAILY_COLLECTION = "ECMWF/ERA5_LAND/DAILY_AGGR"
 ERA5_LAND_SCALE_M = 11132  # native ~0.1 degree grid
@@ -85,6 +88,14 @@ ET_MODEL = "PM"
 CACHE_END_RECHECK_DAYS = 7
 
 GEE_WEATHER_SOURCE = "gee_era5_land"
+
+# ERA5-Land pixels in Earth Engine have their edges at multiples of 0.1 deg (checked on the cache: points
+# in the same floor cell got identical weather). Points closer than this to an edge are not matched to a
+# pixel: four pairs of points ~10 m from an edge came back from different pixels.
+ERA5_LAND_CELL_DEG = 0.1
+CELL_EDGE_MARGIN_DEG = 0.001
+# PCSE weather columns that come straight from ERA5-Land (the rest depend on the point: LAT, LON, ELEV, E0...)
+ERA5_LAND_RECORD_COLUMNS = ["TMIN", "TMAX", "TEMP", "RAIN", "IRRAD", "VAP", "WIND"]
 
 
 def _import_ee():
@@ -133,6 +144,59 @@ def _year_runs(years: list) -> list:
 
 def _weather_cache_path(longitude: float, latitude: float, cache_dir: str) -> str:
     return os.path.join(cache_dir, f"weather_{longitude}_{latitude}_{GEE_WEATHER_SOURCE}.csv")
+
+
+def era5_land_cell(longitude: float, latitude: float) -> Optional[str]:
+    """ERA5-Land pixel `"<lat index>_<lon index>"` holding a point, or None if the point is within
+    `CELL_EDGE_MARGIN_DEG` of a pixel edge.
+
+    >>> era5_land_cell(5.04, 52.17)
+    '521_50'
+    >>> era5_land_cell(5.0004, 52.17) is None
+    True
+    """
+    index = []
+    for value in (latitude, longitude):
+        x = value / ERA5_LAND_CELL_DEG
+        if abs(x - round(x)) * ERA5_LAND_CELL_DEG < CELL_EDGE_MARGIN_DEG:
+            return None
+        index.append(int(np.floor(x)))
+    return f"{index[0]}_{index[1]}"
+
+
+def _cell_cache_file(longitude: float, latitude: float, cache_dir: str) -> Optional[str]:
+    """A cache file of another location in the same ERA5-Land pixel, if there is one."""
+    cell = era5_land_cell(longitude, latitude)
+    if cell is None or not os.path.isdir(cache_dir):
+        return None
+    suffix = f"_{GEE_WEATHER_SOURCE}.csv"
+    for name in sorted(os.listdir(cache_dir)):
+        if not (name.startswith("weather_") and name.endswith(suffix)):
+            continue
+        lon, lat = name[len("weather_"):-len(suffix)].split("_")
+        if era5_land_cell(float(lon), float(lat)) == cell:
+            return os.path.join(cache_dir, name)
+    return None
+
+
+def records_for_location(records: list, latitude: float, longitude: float, elevation: float, years=None) -> list:
+    """Another location's cached records (same ERA5-Land pixel) for this location: the ERA5-Land values
+    are kept, LAT/LON/ELEV and E0/ES0/ET0 are those of this location, as a download would give.
+
+    `years`: keep only these calendar years, the ones a download for this location would fetch; the
+    Angstrom A/B behind E0/ES0 are estimated from all days of a download, so this keeps them identical.
+    """
+    df = pd.DataFrame.from_records(records)[["DAY"] + ERA5_LAND_RECORD_COLUMNS]
+    if years is not None:
+        df = df[[d.year in years for d in df["DAY"]]].reset_index(drop=True)
+    return _pcse_records(df, latitude, longitude, elevation)
+
+
+def _write_weather_cache(records: list, path: str) -> None:
+    # write then rename, so a worker reading another location's file never sees it half-written
+    tmp = f"{path}.{os.getpid()}.tmp"
+    pd.DataFrame.from_records(records).to_csv(tmp, index=False)
+    os.replace(tmp, path)
 
 
 def _is_gee_size_error(exc: Exception) -> bool:
@@ -301,6 +365,13 @@ def era5_land_to_pcse_records(df_raw: pd.DataFrame, latitude: float, longitude: 
         df_raw["u_component_of_wind_10m"].to_numpy() ** 2 + df_raw["v_component_of_wind_10m"].to_numpy() ** 2
     )
     df["WIND"] = wind10to2(wind10)
+    return _pcse_records(df, latitude, longitude, elevation)
+
+
+def _pcse_records(df: pd.DataFrame, latitude: float, longitude: float, elevation: float) -> list:
+    """PCSE records from the ERA5-Land columns (`ERA5_LAND_RECORD_COLUMNS`): adds LAT/LON/ELEV and
+    E0/ES0/ET0 for this location."""
+    df = df.copy()
     df["LAT"] = latitude
     df["LON"] = longitude
     df["ELEV"] = elevation
@@ -366,7 +437,16 @@ def get_gee_weather_provider_for_location(
     path = _weather_cache_path(longitude, latitude, cache_dir)
     description = f"GEE ERA5-Land daily weather for lon={longitude}, lat={latitude} (cached at {path})"
 
-    records = _load_weather_cache(path) if os.path.exists(path) else []
+    records, from_cell = [], None
+    if os.path.exists(path):
+        records = _load_weather_cache(path)
+    elif not force_refresh:
+        from_cell = _cell_cache_file(longitude, latitude, cache_dir)
+        if from_cell is not None:
+            elevation = request_gee_elevation(latitude, longitude)
+            years = set(range(start_date.year, needed_end.year + 1))
+            records = records_for_location(_load_weather_cache(from_cell), latitude, longitude, elevation, years)
+            print(f"Weather for longitude: {longitude}, latitude: {latitude} taken from {from_cell} (same ERA5-Land pixel).")
     cached_days = {r["DAY"] for r in records}
     needed_days = pd.date_range(start_date, needed_end, freq="D").date
     missing_days = [d for d in needed_days if force_refresh or d not in cached_days]
@@ -382,6 +462,8 @@ def get_gee_weather_provider_for_location(
             missing_days = []
 
     if not missing_days:
+        if from_cell is not None:
+            _write_weather_cache(records, path)
         print(f"Weather cache hit for longitude: {longitude}, latitude: {latitude} ({path}).")
         return CachedWeatherDataProvider(records, latitude, longitude, description)
 
@@ -398,7 +480,7 @@ def get_gee_weather_provider_for_location(
     )
 
     os.makedirs(cache_dir, exist_ok=True)
-    pd.DataFrame.from_records(records).to_csv(path, index=False)
+    _write_weather_cache(records, path)
     print(f"Weather for longitude: {longitude}, latitude: {latitude} cached at {path}.")
     return CachedWeatherDataProvider(records, latitude, longitude, description)
 

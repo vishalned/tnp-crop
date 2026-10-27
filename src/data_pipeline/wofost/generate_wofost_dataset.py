@@ -28,7 +28,7 @@ from typing import Optional
 import pandas as pd
 import rootutils
 
-from src.data_pipeline.weather.utils_weather.gee_weather import get_gee_weather_provider_for_location
+from src.data_pipeline.weather.utils_weather.gee_weather import era5_land_cell, get_gee_weather_provider_for_location
 from src.data_pipeline.wofost.run_wofost_simulation import DEFAULT_WOFOST_SAVE_DIR, generate_wofost_episode
 from src.data_pipeline.wofost.utils_wofost.default_wofost_variables import (
     default_max_duration_days,
@@ -112,13 +112,14 @@ def _empty_row(job: dict, year: int, jitter_index: int, sowing_offset_days: int)
 
 
 def _run_location_group(jobs: list, sowing_jitter_days: int, save_dir: str, num_locations: int) -> list:
-    """Run every episode for a group of location jobs that share the same
-    coordinates (e.g. one point listed once for wheat and once for maize),
-    one after the other, and return their manifest rows.
+    """Run every episode for a group of location jobs in the same ERA5-Land
+    pixel (or with the same coordinates, e.g. one point listed once for wheat
+    and once for maize), one after the other, and return their manifest rows.
 
-    Grouping by coordinates is what makes the parallel run safe: the soil
-    and weather caches are one file per (longitude, latitude), so two
-    workers never write the same cache file at the same time.
+    Grouping is what makes the parallel run safe: the soil and weather caches
+    are one file per (longitude, latitude), so two workers never write the
+    same cache file at the same time. Grouping by pixel also lets the pixel's
+    later locations reuse the first one's weather instead of downloading it.
 
     Module-level (not a closure) so it can be sent to worker processes.
     """
@@ -185,6 +186,7 @@ def generate_wofost_dataset(
     output_dir: Optional[str] = None,
     num_workers: Optional[int] = None,
     max_locations: Optional[int] = None,
+    first_location: int = 0,
 ) -> dict:
     """Run WOFOST episodes for a batch of locations -- every year in
     `[start_year, end_year]` (sowing year), `num_jitters` sowing dates per
@@ -200,13 +202,16 @@ def generate_wofost_dataset(
         random offsets within +/- `sowing_jitter_days` of the crop's season
         start (`jitter_index` 0..num_jitters-1, ordered by offset).
     :param num_workers: number of worker processes; locations are spread
-        over them (all rows with the same coordinates go to the same
+        over them (all rows in the same ERA5-Land pixel go to the same
         worker). 1 runs everything in this process, one location after the
         other. Defaults to `min(8, cpu count)`.
     :param max_locations: only run the first `max_locations` locations (rows
         of the locations CSV, so `location_index` keeps its meaning). The
         sowing offsets of every location are still drawn, so a location gets
         the same episodes whatever this is.
+    :param first_location: skip the locations before this row (e.g. ones
+        already simulated by an earlier run of the same CSV's first rows);
+        their offsets are still drawn, like with `max_locations`.
 
     Sowing offsets are all drawn up front in this process, in location
     order, so a given `seed` gives the same episodes whatever `num_workers`
@@ -246,8 +251,11 @@ def generate_wofost_dataset(
             "years": years,
             "sowing_offsets": [_sample_jitter_offsets(rng, num_jitters, sowing_jitter_days) for _ in years],
         }
-        if max_locations is None or i < max_locations:
-            groups.setdefault((longitude, latitude), []).append(job)
+        if i >= first_location and (max_locations is None or i < max_locations):
+            # one worker per ERA5-Land pixel (or per coordinate near a pixel edge): the pixel's locations run
+            # one after the other, so only the first downloads its weather and the others reuse it, and
+            # no two workers write the same cache file
+            groups.setdefault(era5_land_cell(longitude, latitude) or (longitude, latitude), []).append(job)
 
     manifest_rows = []
 
@@ -330,6 +338,7 @@ def main():
     parser.add_argument("--seed", dest="seed", type=int, default=None)
     parser.add_argument("--workers", dest="num_workers", type=int, default=None, help="Worker processes running locations in parallel (default: min(8, cpu count); 1 = sequential).")
     parser.add_argument("--max-locations", dest="max_locations", type=int, default=None, help="Only run the first N locations of the CSV (default: all).")
+    parser.add_argument("--first-location", dest="first_location", type=int, default=0, help="Skip the CSV's rows before this one (default 0); offsets are drawn for all rows.")
     parser.add_argument("-o", "--output-dir", dest="output_dir", type=str, default=DEFAULT_WOFOST_SAVE_DIR)
 
     args = parser.parse_args()
@@ -347,6 +356,7 @@ def main():
         output_dir=args.output_dir,
         num_workers=args.num_workers,
         max_locations=args.max_locations,
+        first_location=args.first_location,
     )
 
 

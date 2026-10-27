@@ -9,6 +9,7 @@ from typing import Optional
 import pcse.models as pcse_models
 import rootutils
 
+from src.data_pipeline.paths import RAW_DIR
 from src.data_pipeline.soil.generate_gee_soil_file import generate_soil_data_for_wofost
 from src.data_pipeline.weather.utils_weather.gee_weather import get_gee_weather_provider_for_location
 from src.data_pipeline.wofost.utils_wofost.agromanagement import (
@@ -31,7 +32,7 @@ from src.data_pipeline.wofost.utils_wofost.pcse_runner import (
 
 
 root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-DEFAULT_WOFOST_SAVE_DIR = os.path.join(str(root), "data", "raw", "wofost")
+DEFAULT_WOFOST_SAVE_DIR = os.path.join(RAW_DIR, "wofost")
 
 
 def generate_wofost_episode(

@@ -37,11 +37,11 @@ Everything is run as modules from the repo root: `uv run python -m <package.modu
 ```bash
 uv run python -m src.data_pipeline.locations.extract_locations_from_zarr --zarr-path ... --crop maize -n 0 --seed 42
 uv run python -m src.data_pipeline.wofost.generate_wofost_dataset --locations-csv data/raw/locations/locations_maize.csv   # CPU job: scripts/slurm/run_cpu.sh
-uv run python -m src.data_checks.coverage_audit   --manifest data/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_maize.csv
-uv run python -m src.data_checks.simulation_audit --manifest data/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_maize.csv
-uv run python -m src.data_pipeline.wofost.process_wofost_dataset --manifest data/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_maize.csv
+uv run python -m src.data_checks.coverage_audit   --manifest $DATA/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_maize.csv
+uv run python -m src.data_checks.simulation_audit --manifest $DATA/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_maize.csv
+uv run python -m src.data_pipeline.wofost.process_wofost_dataset --manifest $DATA/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_maize.csv
 uv run python -m nanotabicl.checkpoint             # download+convert official weights (needs internet: run on a login node)
-uv run python -m nanotabicl.train --init official --data crop --crop-episodes structured --table data/processed/wofost_maize_daily.parquet ...
+uv run python -m nanotabicl.train --init official --data crop --crop-episodes structured --table $DATA/processed/wofost_maize_daily.parquet ...
 uv run python -m nanotabicl.evaluate --checkpoint <out>/best.pt --table ... --years 2019 2020   # --checkpoint official = zero-shot
 sbatch scripts/slurm/run_gpu.sh                    # GPU training + test eval on an A100 (MODE=structured|random)
 ```
@@ -53,7 +53,7 @@ sbatch scripts/slurm/run_gpu.sh                    # GPU training + test eval on
 
 ## Key concepts that span files
 
-- **Unit = season**: one location × sowing year × sowing-date jitter. The batch runner simulates every sowing year 2005–2020 × `--num-jitters` (3) offsets within ±10 days, so 48 seasons per location. Offsets are pre-drawn from one seeded RNG, so results don't depend on `--workers`. Rows with the same coordinates go to the same worker because soil/weather caches are one file per coordinate. Failed seasons are recorded in `dataset_manifest.csv` with `status="failed"`; the manifest is rewritten after each location.
+- **Unit = season**: one location × sowing year × sowing-date jitter. The batch runner simulates every sowing year 2005–2020 × `--num-jitters` (3) offsets within ±10 days, so 48 seasons per location. Offsets are pre-drawn from one seeded RNG, so results don't depend on `--workers`. Rows in the same ERA5-Land pixel go to the same worker (caches are one file per coordinate, and the pixel's later rows reuse the first one's weather: `era5_land_cell` in `gee_weather.py`; pixels have their edges at multiples of 0.1°). Failed seasons are recorded in `dataset_manifest.csv` with `status="failed"`; the manifest is rewritten after each location.
 - **`location_index` = row number of `locations_{crop}.csv`**; processing joins `country` back on it, so don't reorder/filter that CSV after a run.
 - **Crop calendar**: simulations sow at the location's WorldCereal SOS ± jitter and run from SOS − 60 days to at least EOS (soil water balance on bare soil before sowing / after maturity), so soil moisture covers CY-Bench's feature window.
 - **Processed table** `wofost_{crop}_daily.parquet` (`--align calendar`, default): one row per season, `year` = harvest year, `sowing_year` separate, daily series over `[SOS − 60, EOS]` as `<var>_dNNN` columns in CY-Bench units (NaN after a row's EOS); a sibling `..._columns.json` lists the column groups. Current maize run: `/projects/prjs1788/tnp-crop/` (home is nearly full).
@@ -71,5 +71,5 @@ sbatch scripts/slurm/run_gpu.sh                    # GPU training + test eval on
 - `NanoTabICLRegressor(n_estimators=k)` = TabICL's test-time ensemble (`ensemble.py`), tested equal to `TabICLRegressor(n_estimators=k)`; compare against default TabICL with `n_estimators=8`.
 - On the HPC cluster, run heavy jobs through SLURM (`scripts/slurm/`), not on login nodes; logs go to `slurm_logs/`.
 - **Do not run heavy computations on the login node.** For heavy things (training, simulations, dataset processing, audits, test suites with real data) either submit a SLURM job yourself (`sbatch`, CPU: like `scripts/slurm/run_cpu.sh`, GPU: `run_gpu.sh`) and read its log in `slurm_logs/`, or ask the user to run it with `srun`.
-- Home (`/gpfs/home2`) is nearly full (quota and inodes): write large outputs (simulations, processed tables) to `/projects/prjs1788/tnp-crop/`.
+- Home (`/gpfs/home2`) is nearly full (quota and inodes): write large outputs (simulations, processed tables) to `/projects/prjs1788/tnp-crop/`. The pipeline's default data dir `$DATA` is `/projects/prjs1788/tnp-crop/data` (`src/data_pipeline/paths.py`, override with `$TNP_DATA_ROOT`): weather/soil caches, default runs, processed tables, reports. Locations CSVs and crop parameters stay in the repo's `data/`.
 - The benchmark is `../AgML-CY-Bench-Modeling` (WUR-AI/AgML-CY-Bench-Modeling, run with poetry). Ask before changing it; changes go on a local branch there, never pushed.

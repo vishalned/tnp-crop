@@ -14,7 +14,9 @@ import pandas as pd  # noqa: E402
 import rootutils  # noqa: E402
 
 root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-DEFAULT_REPORTS_DIR = os.path.join(str(root), "data", "reports", "dataset_checks")
+from src.data_pipeline.paths import REPORTS_DIR  # noqa: E402
+
+DEFAULT_REPORTS_DIR = os.path.join(REPORTS_DIR, "dataset_checks")
 
 
 def load_manifest(manifest_path: str, locations_csv: Optional[str] = None) -> pd.DataFrame:

@@ -8,6 +8,7 @@ import rootutils
 import yaml
 from omegaconf import DictConfig
 
+from src.data_pipeline.paths import RAW_DIR
 from src.data_pipeline.soil.utils_soil.gee_soilgrids import get_df_soilgrids_gee
 from src.data_pipeline.soil.utils_soil.generate_soil_files import (
     calculate_van_genuchten,
@@ -19,7 +20,7 @@ from src.data_pipeline.soil.utils_soil.soil_static_features import compute_topso
 
 
 root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-DEFAULT_SOIL_SAVE_DIR = os.path.join(str(root), "data", "raw", "soilgrids_gee")
+DEFAULT_SOIL_SAVE_DIR = os.path.join(RAW_DIR, "soilgrids_gee")
 
 
 def generate_soil_file_from_gee(

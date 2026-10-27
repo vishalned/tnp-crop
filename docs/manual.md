@@ -37,9 +37,9 @@ flowchart TD
     B --> W["GEE ERA5-Land<br/>weather_{lon}_{lat}_gee_era5_land.csv"]
     S --> R["run_wofost_simulation.py<br/>PCSE Wofost81_WLP_MLWB"]
     W --> R
-    R --> E["episode CSV + summary JSON<br/>data/raw/wofost/{crop}/"]
+    R --> E["episode CSV + summary JSON<br/>$DATA/raw/wofost/{crop}/"]
     R --> M["dataset_manifest.csv"]
-    M -->|"process_wofost_dataset.py"| P["data/processed/wofost_{crop}_daily.parquet"]
+    M -->|"process_wofost_dataset.py"| P["$DATA/processed/wofost_{crop}_daily.parquet"]
     P -->|"nanotabicl/crop_tables.py"| T["context/query tables"]
     T -->|"nanotabicl/train.py"| N["NanoTabICLv2"]
     N -->|"nanotabicl/evaluate.py"| V["walk-forward metrics"]
@@ -53,8 +53,8 @@ unit as a CYBench row (a region × a season).
 |---|---|---|
 | pick locations | [`src/data_pipeline/locations/extract_locations_from_zarr.py`](../src/data_pipeline/locations/extract_locations_from_zarr.py) | `data/raw/locations/locations_{crop}.csv` |
 | simulate | [`src/data_pipeline/wofost/generate_wofost_dataset.py`](../src/data_pipeline/wofost/generate_wofost_dataset.py) → [`run_wofost_simulation.py`](../src/data_pipeline/wofost/run_wofost_simulation.py) | `data/raw/{soilgrids_gee,weather,wofost}/…` + `dataset_manifest.csv` |
-| check | [`src/data_checks/`](../src/data_checks/) | `data/reports/dataset_checks/…` |
-| process | [`src/data_pipeline/wofost/process_wofost_dataset.py`](../src/data_pipeline/wofost/process_wofost_dataset.py) | `data/processed/wofost_{crop}_daily.parquet` |
+| check | [`src/data_checks/`](../src/data_checks/) | `$DATA/reports/dataset_checks/…` |
+| process | [`src/data_pipeline/wofost/process_wofost_dataset.py`](../src/data_pipeline/wofost/process_wofost_dataset.py) | `$DATA/processed/wofost_{crop}_daily.parquet` |
 | tables | [`nanotabicl/crop_tables.py`](../nanotabicl/crop_tables.py) | in memory |
 | model | [`nanotabicl/model.py`](../nanotabicl/model.py), [`checkpoint.py`](../nanotabicl/checkpoint.py) | — |
 | train / evaluate | [`nanotabicl/train.py`](../nanotabicl/train.py), [`evaluate.py`](../nanotabicl/evaluate.py) | `logs/nanotabicl/<run>/` |
@@ -173,7 +173,7 @@ The column-by-column description of the files is in
 4. **Static features** from the **top layer** (`compute_topsoil_static_features`):
    `bulk_density` = SoilGrids' value; `awc` = moisture at pF 2.0 − moisture
    at pF 4.2 (available water capacity, cm³/cm³).
-5. **Cache:** `data/raw/soilgrids_gee/soil_{lon}_{lat}.yaml` +
+5. **Cache:** `$DATA/raw/soilgrids_gee/soil_{lon}_{lat}.yaml` +
    `soil_{lon}_{lat}_static_features.json`. An existing file is reused
    (soil depends only on location).
 
@@ -190,8 +190,15 @@ The column-by-column description of the files is in
   `E0`, `ES0`, `ET0`; Ångström coefficients estimated from the data
   (`_estimate_angstrom_ab`).
 - **Cache:** one file per location,
-  `data/raw/weather/weather_{lon}_{lat}_gee_era5_land.csv`; only the missing
-  years are requested, in chunks (Earth Engine memory limits).
+  `$DATA/raw/weather/weather_{lon}_{lat}_gee_era5_land.csv`; only the missing
+  years are requested, in chunks (Earth Engine memory limits). `$DATA` is
+  `/projects/prjs1788/tnp-crop/data` (`src/data_pipeline/paths.py`).
+- **Reuse per ERA5-Land pixel:** a location without its own file, in a pixel
+  (edges at multiples of 0.1°, `era5_land_cell`) that already has one, takes
+  that file's ERA5-Land values for the years its own download would fetch,
+  fetches only its elevation, and recomputes LAT/LON/ELEV and E0/ES0/ET0
+  (`records_for_location`); this reproduces a download exactly. Points within
+  0.001° of a pixel edge always download.
 
 ---
 
@@ -277,7 +284,7 @@ other's manifest.
   targets `yield_kg_per_ha` and `yield_t_per_ha`.
 - `--locations-csv` adds `country` (joined on `location_index`).
 - **Output** (`--format parquet` default):
-  `data/processed/wofost_{crop}_daily.parquet` and
+  `$DATA/processed/wofost_{crop}_daily.parquet` and
   `wofost_{crop}_daily_columns.json` (which columns belong to which group,
   window settings).
 
@@ -295,7 +302,7 @@ other's manifest.
   never matured, outliers, effect of the sowing jitter, phenology (flowering,
   maturity, season length), physical sanity of the daily trajectories (LAI,
   biomass, harvest index, water stress), and example curves per location.
-- Both write `summary.md`, CSVs and figures to `data/reports/dataset_checks/…`.
+- Both write `summary.md`, CSVs and figures to `$DATA/reports/dataset_checks/…`.
 
 ---
 
@@ -656,14 +663,14 @@ uv run python -m src.data_pipeline.locations.extract_locations_from_zarr --crop 
 # simulations (CPU job: scripts/slurm/run_cpu.sh)
 uv run python -m src.data_pipeline.wofost.generate_wofost_dataset --locations-csv data/raw/locations/locations_maize.csv
 # checks
-uv run python -m src.data_checks.coverage_audit   --manifest data/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_maize.csv
-uv run python -m src.data_checks.simulation_audit --manifest data/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_maize.csv
+uv run python -m src.data_checks.coverage_audit   --manifest $DATA/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_maize.csv
+uv run python -m src.data_checks.simulation_audit --manifest $DATA/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_maize.csv
 # processed table
-uv run python -m src.data_pipeline.wofost.process_wofost_dataset --manifest data/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_maize.csv
+uv run python -m src.data_pipeline.wofost.process_wofost_dataset --manifest $DATA/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_maize.csv
 # official checkpoint (login node, internet)
 uv run python -m nanotabicl.checkpoint
 # zero-shot
-uv run python -m nanotabicl.evaluate --checkpoint official --table data/processed/wofost_maize_daily.parquet --years 2017 2018
+uv run python -m nanotabicl.evaluate --checkpoint official --table $DATA/processed/wofost_maize_daily.parquet --years 2017 2018
 # training + test evaluation (GPU job: scripts/slurm/run_gpu.sh, MODE=structured|random)
 sbatch scripts/slurm/run_gpu.sh
 ```

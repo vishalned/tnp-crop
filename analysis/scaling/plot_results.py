@@ -8,7 +8,12 @@ Reads the benchmark's per_run.csv of both experiments (`summarize_exp.py`) and w
 - `results_overview.png`: exp_1_eu_grid, default TabICL vs SCM control vs WOFOST, over the 18 countries;
 - `results_per_country.png`: exp_1_eu_grid, NRMSE minus default TabICL's, per country;
 - `results_vs_previous_*.png`: both experiments side by side (overview + per-country change vs TabICL);
-- `decisive_test.png`: old table, old table subsampled to 466 locations, new table FR/BE/DK only, new table.
+- `decisive_test.png`: old table, old table subsampled to 466 locations, new table FR/BE/DK only, new table;
+- `results_all_models_overview.png` / `_heatmap.png`: every model on the same test rows: default TabICL,
+  the EU grid run's SCM control, WOFOST pretraining on the FR/BE/DK table (exp_1), the EU grid table and
+  (once run) the densified EU grid table (`docs/country_share_report.md`), and the uncalibrated WOFOST
+  yield as a baseline (`analysis/wofost_baseline_cybench`, scored by the benchmark's summarize_exp.py).
+  Overview = means over the 18 countries; heatmap = per country x model, NRMSE and anomaly r.
 
 It also copies the per_run.csv to `analysis/scaling/results_exp1_eu_grid_per_run.csv`.
 """
@@ -36,9 +41,9 @@ BOTH = {(None, TABICL): ("TabICL default", REF, "D", True),
         ("eu_grid", WOFOST_SET): ("WOFOST, EU grid table", WOFOST, "o", True)}
 
 
-def runs() -> pd.DataFrame:
+def runs(experiments=(("exp_1_eu_grid", "eu_grid"), ("exp_1", "fr_be_dk"))) -> pd.DataFrame:
     frames = []
-    for exp, tag in (("exp_1_eu_grid", "eu_grid"), ("exp_1", "fr_be_dk")):
+    for exp, tag in experiments:
         r = pd.read_csv(BENCH / exp / "per_run.csv").assign(exp=tag)
         r["seed"] = r["seed"].fillna(0).astype(int)
         frames.append(r)
@@ -89,12 +94,11 @@ def overview(r, settings, name, title):
     plt.close(fig)
 
 
-def per_country(r, settings, name, title):
+def per_country(r, settings, name, title, sort_key=("eu_grid", WOFOST_SET)):
     ref = _select(r, (None, TABICL)).set_index("country")["nrmse"]
     n = r.groupby("country")["n_region_years"].first()
     keys = [k for k in settings if k[1] != TABICL]
     stats = {k: _select(r, k).groupby("country")["nrmse"].agg(["mean", "std"]) for k in keys}
-    sort_key = ("eu_grid", WOFOST_SET)
     countries = (stats[sort_key]["mean"] - ref).sort_values().index
     y = np.arange(len(countries))
     offsets = np.linspace(-0.3, 0.3, len(keys))
@@ -191,6 +195,68 @@ def decisive_test():
     print(f"wrote {OUT / 'decisive_test.png'}")
 
 
+# ---------------------------------------------------------------- all models: FR/BE/DK -> EU grid -> densified, + baseline
+
+BASELINE = ("wofost_baseline", "baseline")  # analysis/wofost_baseline_cybench --test, scored by summarize_exp.py
+BASELINE_SET = "wofost:raw_eu_grid"
+ALL_RUNS = (("exp_1", "fr_be_dk"), ("exp_1_eu_grid", "eu_grid"), ("exp_1_eu_grid_dense", "eu_grid_dense"), BASELINE)
+ALL = {(None, TABICL): ("TabICL default", REF, "D", True),
+       ("eu_grid", SCM_SET): ("SCM control (EU grid shapes)", SCM, "s", True),
+       ("fr_be_dk", WOFOST_SET): ("WOFOST pretraining, FR/BE/DK table (exp_1)", "#9ec5f4", "o", True),
+       ("eu_grid", WOFOST_SET): ("WOFOST pretraining, EU grid table", "#2a78d6", "o", True),
+       ("eu_grid_dense", WOFOST_SET): ("WOFOST pretraining, densified EU grid table", "#14498a", "o", True),
+       ("baseline", BASELINE_SET): ("WOFOST yield, uncalibrated (WLP-MLWB, EU grid points)", "#7f3c8d", "v", True)}
+SHORT = {(None, TABICL): "TabICL\ndefault", ("eu_grid", SCM_SET): "SCM\ncontrol", ("fr_be_dk", WOFOST_SET): "WOFOST\nFR/BE/DK",
+         ("eu_grid", WOFOST_SET): "WOFOST\nEU grid", ("eu_grid_dense", WOFOST_SET): "WOFOST\ndensified",
+         ("baseline", BASELINE_SET): "raw WOFOST\nyield"}
+
+
+def heatmap(r, settings, name, title):
+    """Countries x models: the value in each cell, coloured by its difference to default TabICL."""
+    from matplotlib.colors import TwoSlopeNorm
+    keys = list(settings)
+    n = r.groupby("country")["n_region_years"].max()
+    countries = list(n.sort_values(ascending=False).index)
+    panels = [("nrmse", "NRMSE (lower is better)", -1), ("anomaly_r", "anomaly r (higher is better)", 1)]
+    fig, axes = plt.subplots(1, 2, figsize=(2 * (1.05 * len(keys) + 1.2), 0.3 * len(countries) + 2.4))
+    for ax, (col, ptitle, sign) in zip(axes, panels):
+        m = pd.DataFrame({k: _select(r, k).groupby("country")[col].mean() for k in keys}).reindex(countries)
+        m.loc["mean"] = m.mean()
+        better = sign * (m.sub(m[(None, TABICL)], axis=0))  # > 0: better than default TabICL
+        lim = 0.05 if col == "nrmse" else 0.15
+        ax.imshow(better.clip(-lim, lim).to_numpy(), cmap="RdBu", norm=TwoSlopeNorm(0, -lim, lim), aspect="auto")
+        for (i, j), v in np.ndenumerate(m.to_numpy()):
+            ax.text(j, i, "" if np.isnan(v) else f"{v:.3f}" if col == "nrmse" else f"{v:.2f}", ha="center",
+                    va="center", fontsize=6.8, color="white" if abs(better.iat[i, j]) > 0.75 * lim else INK,
+                    fontweight="bold" if i == len(m) - 1 else None)
+        ax.axhline(len(countries) - 0.5, color=INK, lw=1.2)
+        ax.set_xticks(range(len(keys)), [SHORT[k] for k in keys], fontsize=7.5)
+        ax.xaxis.tick_top()
+        ax.set_yticks(range(len(m)), [f"{c} (n={n[c]})" for c in countries] + ["mean"])
+        ax.set_title(ptitle, loc="left", pad=28)
+        ax.grid(False)
+    fig.suptitle(title, x=0.0, ha="left", fontsize=10, color=INK)
+    fig.text(0.0, -0.01, "colour: blue = better than default TabICL, red = worse (capped at ±0.05 NRMSE, ±0.15 r); "
+             "means over 3 pretraining seeds; n = test region-years (raw WOFOST: no DE 2021, WOFOST ends 2020)",
+             fontsize=7.5, color=INK2)
+    fig.tight_layout()
+    fig.savefig(OUT / f"{name}.png")
+    plt.close(fig)
+
+
+def all_models():
+    """Every model on the benchmark's test rows; runs that don't exist yet are left out."""
+    runs_present = tuple((e, t) for e, t in ALL_RUNS if (BENCH / e / "per_run.csv").exists())
+    tags = {t for _, t in runs_present}
+    settings = {k: v for k, v in ALL.items() if k[0] is None or k[0] in tags}
+    r = runs(runs_present)
+    single = "18 European maize countries, single pass\n(large marker = mean over 3 pretraining seeds, small = each seed)"
+    overview(r, settings, "results_all_models_overview", f"All models on the same test rows: {single}")
+    heatmap(r, settings, "results_all_models_heatmap", "All models per country, walk-forward test years")
+    print(f"wrote {OUT}/results_all_models_*.png")
+
+
 if __name__ == "__main__":
     main()
     decisive_test()
+    all_models()

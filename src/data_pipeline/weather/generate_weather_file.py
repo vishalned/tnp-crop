@@ -3,11 +3,12 @@ import os
 import sys
 import rootutils
 
+from src.data_pipeline.paths import RAW_DIR
 from src.data_pipeline.weather.utils_weather.gee_weather import get_df_weather_gee
 
 
 root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-DEFAULT_WEATHER_SAVE_DIR = os.path.join(str(root), "data", "raw", "weather")
+DEFAULT_WEATHER_SAVE_DIR = os.path.join(RAW_DIR, "weather")
 
 
 def generate_weather_file(

@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 import rootutils
 
+from src.data_pipeline.paths import RAW_DIR
 from src.data_pipeline.soil.utils_soil.soilgrids import get_df_soilgrids
 from src.data_pipeline.soil.utils_soil.generate_soil_files import (
     calculate_van_genuchten,
@@ -14,7 +15,7 @@ from src.data_pipeline.soil.utils_soil.generate_soil_files import (
 
 
 root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-DEFAULT_SOIL_SAVE_DIR = os.path.join(str(root), "data", "raw", "soilgrids")
+DEFAULT_SOIL_SAVE_DIR = os.path.join(RAW_DIR, "soilgrids")
 
 
 def generate_soil_file(longitude: float, latitude: float, output_dir: str = None) -> str:
