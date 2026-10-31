@@ -118,6 +118,18 @@ def test_small_regions_are_dropped(tables):
     assert set(tables.country_points) == {"France", "Germany"} and tables.dropped_regions == {"Belgium": 4}
 
 
+def test_country_subset_is_a_table_of_those_countries(table_path, tmp_path):
+    subset = CropTables(table_path, CropTableConfig(countries=["Germany"]))
+    df = pd.read_parquet(table_path)
+    only = tmp_path / "germany.parquet"
+    df[df["country"] == "Germany"].to_parquet(only, index=False)
+    alone = CropTables(str(only))
+    assert set(subset.df["country"]) == {"Germany"} and list(subset.country_points) == ["Germany"]
+    assert subset.feature_names == alone.feature_names and np.array_equal(subset.features, alone.features)
+    with pytest.raises(ValueError, match="not in the table"):
+        CropTables(table_path, CropTableConfig(countries=["Spain"]))
+
+
 def _rows(tables, x):
     """Row indices of a sampled table (features are unique per row in the fixture)."""
     return np.array([int(np.flatnonzero((tables.features == r.numpy()).all(1))[0]) for r in x])

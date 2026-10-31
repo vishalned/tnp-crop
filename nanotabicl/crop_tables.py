@@ -49,7 +49,7 @@ from nanotabicl.cybench_features import MAX_COLUMN_NAN_RATE, apply_normalizer, c
 @dataclass
 class CropTableConfig:
     train_years: Sequence[int] = (2005, 2016)
-    countries: Optional[Sequence[str]] = None  # None = every country in the table
+    countries: Optional[Sequence[str]] = None  # None = every country; else only these rows are kept (features too)
     target: str = "yield_t_per_ha"
     horizon: str = "eos"  # CY-Bench's end_of_sequence: eos | middle-of-season | quarter-of-season | early-season | eos-N
     episodes: str = "structured"  # "structured" | "random"
@@ -70,7 +70,13 @@ class CropTables:
         df = pd.read_parquet(path) if path.endswith(".parquet") else pd.read_csv(path)
         if "reached_maturity" in df:
             df = df[df["reached_maturity"].astype(bool)]
-        df = df[np.isfinite(df[config.target])].reset_index(drop=True)
+        df = df[np.isfinite(df[config.target])]
+        if config.countries:  # as if the table held only these countries (also for the feature normaliser)
+            missing = set(config.countries) - set(df["country"].unique())
+            if missing:
+                raise ValueError(f"Countries not in the table: {sorted(missing)}")
+            df = df[df["country"].isin(config.countries)]
+        df = df.reset_index(drop=True)
         if "country" not in df:
             df["country"] = "all"
         self.df = df

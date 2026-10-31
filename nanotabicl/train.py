@@ -179,6 +179,7 @@ def main():
     p.add_argument("--val-years", type=int, nargs="+", default=[2017, 2018])
     p.add_argument("--crop-episodes", default="structured", choices=["structured", "random"],
                    help="structured: context = earlier years, queries = target year; random: TabICL-style random row split")
+    p.add_argument("--countries", nargs="+", default=None, help="train on these countries only (names as in the table)")
     p.add_argument("--min-points", type=int, default=10, help="points per table; regions with fewer are dropped")
     p.add_argument("--max-points", type=int, default=None, help="default: up to all points of a region")
     p.add_argument("--max-rows", type=int, default=4096, help="cap on rows per crop table (memory)")
@@ -229,7 +230,7 @@ def main():
     crop = None
     if args.table:
         crop = CropTables(args.table, CropTableConfig(
-            train_years=args.train_years, target=args.target, horizon=args.horizon,
+            train_years=args.train_years, target=args.target, horizon=args.horizon, countries=args.countries,
             episodes=args.crop_episodes, min_points=args.min_points, max_points=args.max_points, max_rows=args.max_rows,
             min_context_years=args.min_context_years, max_context_years=args.max_context_years))
         sizes = {c: len(p) for c, p in crop.country_points.items()}

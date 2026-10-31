@@ -10,10 +10,11 @@ Reads the benchmark's per_run.csv of both experiments (`summarize_exp.py`) and w
 - `results_vs_previous_*.png`: both experiments side by side (overview + per-country change vs TabICL);
 - `decisive_test.png`: old table, old table subsampled to 466 locations, new table FR/BE/DK only, new table;
 - `results_all_models_overview.png` / `_heatmap.png`: every model on the same test rows: default TabICL,
-  the EU grid run's SCM control, WOFOST pretraining on the FR/BE/DK table (exp_1), the EU grid table and
-  (once run) the densified EU grid table (`docs/country_share_report.md`), and the uncalibrated WOFOST
+  the EU grid run's SCM control, WOFOST pretraining on the EU grid table and the densified EU grid table (`docs/country_share_report.md`), and the uncalibrated WOFOST
   yield as a baseline (`analysis/wofost_baseline_cybench`, scored by the benchmark's summarize_exp.py).
-  Overview = means over the 18 countries; heatmap = per country x model, NRMSE and anomaly r.
+  Overview = means over the 18 countries; heatmap = per country x model, NRMSE and anomaly r;
+- `results_sanity_regions_overview.png`: pretraining on regional subsets of the densified table
+  (scripts/slurm/submit_sanity_regions.sh, one seed each) vs the full densified table and default TabICL.
 
 It also copies the per_run.csv to `analysis/scaling/results_exp1_eu_grid_per_run.csv`.
 """
@@ -198,14 +199,14 @@ def decisive_test():
 # ---------------------------------------------------------------- all models: FR/BE/DK -> EU grid -> densified, + baseline
 
 BASELINE = ("wofost_baseline", "baseline")  # analysis/wofost_baseline_cybench --test, scored by summarize_exp.py
-BASELINE_SET = "wofost:raw_eu_grid"
-ALL_RUNS = (("exp_1", "fr_be_dk"), ("exp_1_eu_grid", "eu_grid"), ("exp_1_eu_grid_dense", "eu_grid_dense"), BASELINE)
+BASELINE_SET = "wofost:raw_eu_grid_dense"  # densified points: more regions with their own points
+# the FR/BE/DK table (exp_1) is left out: an accidental sample (the first rows of an interrupted run)
+ALL_RUNS = (("exp_1_eu_grid", "eu_grid"), ("exp_1_eu_grid_dense", "eu_grid_dense"), BASELINE)
 ALL = {(None, TABICL): ("TabICL default", REF, "D", True),
        ("eu_grid", SCM_SET): ("SCM control (EU grid shapes)", SCM, "s", True),
-       ("fr_be_dk", WOFOST_SET): ("WOFOST pretraining, FR/BE/DK table (exp_1)", "#9ec5f4", "o", True),
        ("eu_grid", WOFOST_SET): ("WOFOST pretraining, EU grid table", "#2a78d6", "o", True),
-       ("eu_grid_dense", WOFOST_SET): ("WOFOST pretraining, densified EU grid table", "#14498a", "o", True),
-       ("baseline", BASELINE_SET): ("WOFOST yield, uncalibrated (WLP-MLWB, EU grid points)", "#7f3c8d", "v", True)}
+       ("eu_grid_dense", WOFOST_SET): ("WOFOST pretraining, densified EU grid table", "#1b9e77", "o", True),
+       ("baseline", BASELINE_SET): ("WOFOST yield, uncalibrated (WLP-MLWB, densified points)", "#7f3c8d", "v", True)}
 SHORT = {(None, TABICL): "TabICL\ndefault", ("eu_grid", SCM_SET): "SCM\ncontrol", ("fr_be_dk", WOFOST_SET): "WOFOST\nFR/BE/DK",
          ("eu_grid", WOFOST_SET): "WOFOST\nEU grid", ("eu_grid_dense", WOFOST_SET): "WOFOST\ndensified",
          ("baseline", BASELINE_SET): "raw WOFOST\nyield"}
@@ -256,7 +257,31 @@ def all_models():
     print(f"wrote {OUT}/results_all_models_*.png")
 
 
+# ---------------------------------------------------------------- sanity check: regional subsets of the densified table
+
+SANITY_RUNS = (("exp_1_eu_grid_dense", "eu_grid_dense"), ("sanity_regions_nw", "nw"), ("sanity_regions_ce", "ce"),
+               ("sanity_regions_south", "south"), ("sanity_regions_frbedk", "frbedk"))
+SANITY = {(None, TABICL): ("TabICL default", REF, "D", True),
+          ("eu_grid_dense", WOFOST_SET): ("all 19 countries (densified table, 3 seeds)", "#1b9e77", "o", True),
+          ("nw", WOFOST_SET): ("north-west: FR BE NL DE DK", "#a6761d", "o", True),
+          ("ce", WOFOST_SET): ("central-east: PL CZ SK HU RO BG AT HR SI LT", "#e6ab02", "o", True),
+          ("south", WOFOST_SET): ("south: ES PT IT EL", "#e7298a", "o", True),
+          ("frbedk", WOFOST_SET): ("FR BE DK (densified points)", "#17becf", "o", True)}
+
+
+def sanity_regions():
+    """WOFOST pretraining on regional subsets of the densified table, benchmarked on all 18 countries."""
+    present = tuple((e, t) for e, t in SANITY_RUNS if (BENCH / e / "per_run.csv").exists())
+    tags = {t for _, t in present}
+    settings = {k: v for k, v in SANITY.items() if k[0] is None or k[0] in tags}
+    overview(runs(present), settings, "results_sanity_regions_overview",
+             "Sanity check: pretraining on regional subsets of the densified table (1 seed each), "
+             "benchmarked on all 18 countries")
+    print(f"wrote {OUT}/results_sanity_regions_overview.png")
+
+
 if __name__ == "__main__":
     main()
     decisive_test()
     all_models()
+    sanity_regions()

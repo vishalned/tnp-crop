@@ -42,6 +42,7 @@ def main():
     tables = CropTables(args.table, CropTableConfig(
         target=args.target, horizon=args.horizon or trained.get("horizon", "eos"),
         train_years=tuple(trained.get("train_years", (2005, 2016))),  # the normaliser is fitted on these
+        countries=trained.get("countries"),  # the training subset, if any
         min_points=trained.get("min_points", args.min_points)))
     model.to(args.device)
 

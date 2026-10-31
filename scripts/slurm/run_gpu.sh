@@ -28,6 +28,9 @@ WD=${WD:-0}               # AdamW weight decay (official fine-tuning: 0.01)
 WARMUP_FRAC=${WARMUP_FRAC:-}  # warmup as a fraction of STEPS (official fine-tuning: 0.1); empty = 200 steps
 SEED=${SEED:-0}           # training seed (which tables are drawn; SCM: also the prior)
 WORKERS=${WORKERS:-4}     # DataLoader workers (prior generation)
+TRAIN_COUNTRIES=${TRAIN_COUNTRIES:-}  # train (and test) on these countries only: names as in the table, ':'-separated
+                                     # (not COUNTRIES: the benchmark's run_europe.sh uses that name)
+MICRO_BATCH=${MICRO_BATCH:-2}  # 1 if tables reach 4096 rows: 2 x 4096 rows x 8 heads exceeds CUDA's 65535 grid limit in row attention
 EVAL=${EVAL:-best.pt}     # checkpoint evaluated on the test years
 TABLE=${TABLE:-/projects/prjs1788/tnp-crop/processed/wofost_maize_daily.parquet}  # CY-Bench features (calendar run)
 RUN=${RUN:-continue_maize_$MODE}
@@ -36,7 +39,7 @@ OUT=/projects/prjs1788/tnp-crop/nanotabicl/$RUN  # project space: home is nearly
 uv run python -u -m nanotabicl.train --init official --data $DATA --crop-episodes $MODE --table $TABLE \
     --steps $STEPS --stop-at $STOP_AT --save-steps $SAVE_STEPS --lr $LR --weight-decay $WD --seed $SEED \
     ${WARMUP_FRAC:+--warmup-fraction $WARMUP_FRAC} --num-workers $WORKERS \
-    --micro-batch-size 2 --checkpoint-activations --out-dir $OUT
+    ${TRAIN_COUNTRIES:+--countries ${TRAIN_COUNTRIES//:/ }} --micro-batch-size $MICRO_BATCH --checkpoint-activations --out-dir $OUT
 
 # test years (WOFOST tables)
 uv run python -u -m nanotabicl.evaluate --checkpoint $OUT/$EVAL --table $TABLE --years 2019 2020

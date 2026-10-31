@@ -172,9 +172,39 @@ pixel's weather, §4). Result: **12,382 locations** (2,000 + 10,382) in 6,591 pi
 | Denmark | 23 | 1 | 5.3% | 0.2% | **0.1%** | 70 | 80 |
 | All | | | | | | 240 (mean 529) | 4,080 |
 
-### Densified EU grid
+### Densified EU grid (12,095 locations in the 19 training countries)
 
-_Filled in after the run (`analysis/scaling/table_share.csv`, run `eu_grid_dense`)._
+| Country | Locations | Usable | Lead share | Lead built | **Table share** | Rows median | Rows max |
+|---|---|---|---|---|---|---|---|
+| Czechia | 893 | 630 | 5.5% | 5.5% | **6.0%** | 2,034 | 4,095 |
+| Slovakia | 810 | 762 | 5.4% | 5.4% | **5.7%** | 2,050 | 4,096 |
+| Germany | 793 | 700 | 5.4% | 5.4% | **5.8%** | 2,000 | 4,096 |
+| Poland | 723 | 686 | 5.1% | 5.1% | **5.6%** | 2,019 | 4,096 |
+| Bulgaria | 713 | 706 | 4.7% | 4.7% | **5.9%** | 2,094 | 4,092 |
+| Croatia | 710 | 710 | 5.6% | 5.6% | **5.9%** | 2,052 | 4,096 |
+| Romania | 706 | 699 | 5.4% | 5.4% | **6.0%** | 2,045 | 4,092 |
+| Greece | 703 | 702 | 6.2% | 6.2% | **6.2%** | 2,057 | 4,096 |
+| Austria | 701 | 666 | 4.8% | 4.8% | **5.9%** | 2,063 | 4,096 |
+| Hungary | 698 | 698 | 5.4% | 5.4% | **5.8%** | 1,980 | 4,092 |
+| France | 697 | 697 | 5.4% | 5.4% | **6.0%** | 2,028 | 4,095 |
+| Italy | 697 | 697 | 4.9% | 4.9% | **6.0%** | 2,010 | 4,096 |
+| Spain | 696 | 694 | 5.5% | 5.5% | **5.9%** | 1,998 | 4,092 |
+| Belgium | 693 | 687 | 5.1% | 5.1% | **6.1%** | 2,034 | 4,095 |
+| Portugal | 392 | 392 | 5.5% | 5.5% | **5.0%** | 1,710 | 4,092 |
+| Slovenia | 350 | 348 | 4.6% | 4.6% | **4.6%** | 1,606 | 4,092 |
+| Netherlands | 325 | 325 | 5.3% | 5.3% | **4.5%** | 1,504 | 3,888 |
+| Lithuania | 261 | 70 | 5.2% | 2.8% | **2.0%** | 677 | 1,944 |
+| Denmark | 534 | 8 | 5.0% | 0.9% | **1.0%** | 1,233 | 2,853 |
+| All | | | | | | 1,908 (mean 1,968) | 4,096 |
+
+- The 14 countries with ~700 usable points get **5.6–6.2%** of the tables each (EU grid: 3.5–11.9%); Portugal,
+  Slovenia and the Netherlands 4.5–5.0%. Every one of them reaches 4,096-row tables.
+- The median table is **1,908 rows** (EU grid 240, exp_1 990), and a run sees about 3.7× more rows than the EU
+  grid run at the same 2,000 steps.
+- Denmark (8 usable points, estimated 22) and Lithuania (70) stay small, as expected: most of their seasons
+  don't mature (§3.3). Czechia has 630 usable points instead of the estimated 701.
+- Simulation: 12,382 locations, 581,040 of 594,336 seasons simulated; whole-location failures (1–4% per chunk)
+  are points without (complete) SoilGrids data or outside the ERA5-Land land mask, as in the EU grid run.
 
 ## 6. Results
 

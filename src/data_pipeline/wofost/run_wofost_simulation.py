@@ -49,6 +49,7 @@ def generate_wofost_episode(
     sowing_offset_days: Optional[int] = None,
     eos_doy: Optional[int] = None,
     pre_season_days: Optional[int] = None,
+    write_summary: bool = True,
 ) -> dict:
     """Run one end-to-end WOFOST/PCSE simulation episode for a location/year
     and cache the daily driver+output trajectory (with CYBench-aligned
@@ -171,11 +172,13 @@ def generate_wofost_episode(
         "awc": static_features["awc"],
         "bulk_density": static_features["bulk_density"],
     }
-    with open(summary_path, "w") as f:
-        json.dump(summary_record, f, indent=2)
-
     print(f"WOFOST daily trajectory written to {daily_path}.")
-    print(f"WOFOST summary written to {summary_path}.")
+    if write_summary:  # the batch runner skips it: the manifest has the same fields (one file less per season)
+        with open(summary_path, "w") as f:
+            json.dump(summary_record, f, indent=2)
+        print(f"WOFOST summary written to {summary_path}.")
+    else:
+        summary_path = None
 
     return {"daily_path": daily_path, "summary_path": summary_path, "summary": summary_record}
 

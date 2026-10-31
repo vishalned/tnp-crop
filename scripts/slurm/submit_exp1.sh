@@ -6,6 +6,8 @@
 #       bash scripts/slurm/submit_exp1.sh      # same experiment on another WOFOST table (scaling: EU grid)
 #   DATAS=crop       only the WOFOST runs (no SCM control);  AFTER=<jobid>  training waits for that job
 #   TRAIN_TIME / TRAIN_MEM  resources of the WOFOST training jobs (default 03:00:00 / 32G)
+#   REFERENCE=copy (default)  copy the default TabICL reference results from $REF_FROM (default exp_1) instead
+#       of running it again (it is deterministic: every run gives the same numbers); REFERENCE=run runs it
 #
 # Training: continued pretraining of the official TabICLv2 weights, 3 seeds each for WOFOST tables
 #   and the SCM control (prior tables with the WOFOST batches' shapes; seed N of both draws the same
@@ -32,6 +34,8 @@ DATAS=${DATAS:-"crop prior-matched"}
 AFTER=${AFTER:-}
 TRAIN_TIME=${TRAIN_TIME:-03:00:00}
 TRAIN_MEM=${TRAIN_MEM:-32G}
+REFERENCE=${REFERENCE:-copy}
+REF_FROM=/projects/prjs1788/tnp-crop/cybench_output/${REF_FROM:-exp_1}
 mkdir -p "$LOGS" "$TRAIN_ROOT"
 
 europe() {  # europe <dependency or ""> <tag> <extra env> <hydra overrides...>
@@ -43,9 +47,15 @@ europe() {  # europe <dependency or ""> <tag> <extra env> <hydra overrides...>
 
 eval_jobs=()
 # reference: default TabICL (official tabicl package), single pass
-job=$(europe "" tabicl_default_single ",MODEL=tabicl" model.n_estimators=1)
-echo "benchmark tabicl default single: $job"
-eval_jobs+=("$job")
+if [ "$REFERENCE" = run ]; then
+    job=$(europe "" tabicl_default_single ",MODEL=tabicl" model.n_estimators=1)
+    echo "benchmark tabicl default single: $job"
+    eval_jobs+=("$job")
+else
+    mkdir -p "$BENCH_ROOT"
+    cp -r "$REF_FROM"/*_tabicl_eos_tabicl_default_single "$BENCH_ROOT"/
+    echo "benchmark tabicl default single: copied from $REF_FROM"
+fi
 
 COMMON="STEPS=2000,STOP_AT=2000,LR=1e-5,WD=0.01,WARMUP_FRAC=0.1,EVAL=last.pt,TABLE=$TABLE"
 for data in $DATAS; do

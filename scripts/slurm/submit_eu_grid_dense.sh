@@ -3,6 +3,8 @@
 #
 #   bash scripts/slurm/submit_eu_grid_dense.sh
 #   TEST=1 bash scripts/slurm/submit_eu_grid_dense.sh     # 6 locations in one part, to wofost_eu_grid_dense_test
+#   CHUNKS=2-5 AFTER=<jobid> bash scripts/slurm/submit_eu_grid_dense.sh   # only these chunks, after that job
+#       (the merge always takes every chunk 0..NCHUNK-1)
 #
 # 1. run_wofost_eu_grid_dense.sh: the new locations in chunks (one array task at a time, so Earth Engine
 #    sees at most WORKERS requests at once); each chunk simulated and processed on its own.
@@ -24,7 +26,7 @@ fi
 LOGS=$REPO/slurm_logs
 mkdir -p $RAW
 
-sim=$(sbatch --parsable --array=0-$((NCHUNK - 1))%1 \
+sim=$(sbatch --parsable --array=${CHUNKS:-0-$((NCHUNK - 1))}%1 ${AFTER:+--dependency=afterok:$AFTER} \
     --export=ALL,LOCATIONS=$LOCATIONS,RAW=$RAW,FIRST0=$FIRST0,CHUNK=$CHUNK $REPO/scripts/slurm/run_wofost_eu_grid_dense.sh)
 echo "simulation + processing: array job $sim ($NCHUNK chunks of $CHUNK locations, rows $FIRST0..$((N - 1)))"
 [ "${TEST:-0}" = 1 ] && exit 0

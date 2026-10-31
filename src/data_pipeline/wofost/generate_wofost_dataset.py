@@ -144,6 +144,7 @@ def _run_location_group(jobs: list, sowing_jitter_days: int, save_dir: str, num_
                     sowing_doy=job["sos_doy"],
                     eos_doy=job["eos_doy"],
                     output_dir=save_dir,
+                    write_summary=False,  # its fields are in the manifest
                 )
                 summary = result["summary"]
                 row.update(
