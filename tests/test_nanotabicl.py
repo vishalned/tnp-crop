@@ -154,6 +154,41 @@ def test_structured_training_tables(tables):
     assert min(sizes) >= 10 and max(sizes) > 10  # from 10 up to a region's size (France 12, Germany 11)
 
 
+def test_loguniform_points_per_table(table_path, tables):
+    """points_sampling="loguniform" + min_table_points=1: tables from a single point up to the cap, mostly small ones."""
+    small = CropTables(table_path, CropTableConfig(points_sampling="loguniform", min_table_points=1))
+    assert set(small.country_points) == {"France", "Germany"}  # the region filter (min_points=10) is unchanged
+    rng = np.random.default_rng(0)
+    counts = []
+    for _ in range(300):
+        b = small.sample_batch(rng, batch_size=2)
+        n_rows, n_train = b["x"].shape[1], b["n_train"]
+        n_points = n_rows - n_train
+        assert 1 <= n_points <= 12 and n_train % n_points == 0 and 5 <= n_train // n_points <= 11
+        years = small.year[_rows(small, b["x"][0])]
+        assert (years[:n_train] < years[n_train]).all() and (years[n_train:] == years[n_train]).all()
+        counts.append(n_points)
+    counts = np.array(counts)
+    assert counts.min() == 1 and counts.max() >= 10
+    # log-uniform on [1, 12]: P(n <= 3) = log(4) / log(13) = 0.54 (uniform on [1, 12] would give 0.25)
+    assert 0.45 < (counts <= 3).mean() < 0.65
+    # (the default, uniform from min_points = 10, is covered by test_structured_training_tables)
+    with pytest.raises(ValueError, match="points_sampling"):
+        CropTables(table_path, CropTableConfig(points_sampling="normal"))
+
+
+def test_matched_prior_shapes_for_mixing_follow_the_crop_sampler(table_path):
+    from nanotabicl.prior_tables import crop_batch_shapes
+
+    small = CropTables(table_path, CropTableConfig(points_sampling="loguniform", min_table_points=1))
+    crop_shapes = crop_batch_shapes(small, 2, 40, 0)
+    prior_shapes = crop_batch_shapes(small, 2, 40, 10_000)  # train.py --data mix-matched: fresh draws, another seed
+    assert crop_shapes != prior_shapes
+    assert {s[1] for s in crop_shapes + prior_shapes} == {small.features.shape[1]}  # same feature count as the crop tables
+    for n_rows, _, n_train in crop_shapes + prior_shapes:
+        assert 6 <= n_rows <= 4096 and 5 <= n_train < n_rows
+
+
 def test_random_training_tables(random_tables):
     rng = np.random.default_rng(0)
     for _ in range(10):

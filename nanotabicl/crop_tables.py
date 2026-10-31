@@ -53,8 +53,10 @@ class CropTableConfig:
     target: str = "yield_t_per_ha"
     horizon: str = "eos"  # CY-Bench's end_of_sequence: eos | middle-of-season | quarter-of-season | early-season | eos-N
     episodes: str = "structured"  # "structured" | "random"
-    min_points: int = 10  # also: regions with fewer points are dropped
+    min_points: int = 10  # regions with fewer points are dropped; also the lower end of points per table unless min_table_points is set
     max_points: Optional[int] = None  # None = up to all of a region's points
+    points_sampling: str = "uniform"  # points per table: "uniform" over [lower, cap] or "loguniform" (many small tables, few large)
+    min_table_points: Optional[int] = None  # lower end of points per table; None = min_points (the region filter is unchanged)
     max_rows: int = 4096  # cap on rows per table (memory)
     min_context_years: int = 5  # structured episodes
     max_context_years: int = 11
@@ -66,6 +68,8 @@ class CropTables:
     def __init__(self, path: str, config: CropTableConfig = CropTableConfig()):
         if config.episodes not in ("structured", "random"):
             raise ValueError(f"episodes must be 'structured' or 'random', got {config.episodes!r}.")
+        if config.points_sampling not in ("uniform", "loguniform"):
+            raise ValueError(f"points_sampling must be 'uniform' or 'loguniform', got {config.points_sampling!r}.")
         self.config = config
         df = pd.read_parquet(path) if path.endswith(".parquet") else pd.read_csv(path)
         if "reached_maturity" in df:
@@ -121,7 +125,12 @@ class CropTables:
         rows_per_point = (int(rng.integers(cfg.min_context_years, cfg.max_context_years + 1)) + 1
                           if cfg.episodes == "structured" else len(self.train_pool))
         hi = min(len(self.country_points[lead]), cfg.max_points or np.inf, cfg.max_rows // rows_per_point)
-        n_points = int(rng.integers(cfg.min_points, max(hi, cfg.min_points) + 1))
+        lo = cfg.min_points if cfg.min_table_points is None else cfg.min_table_points
+        hi = max(hi, lo)
+        if cfg.points_sampling == "loguniform":  # log-uniform over [lo, hi]: each factor of 2 is equally likely
+            n_points = min(max(int(np.exp(rng.uniform(np.log(lo), np.log(hi + 1)))), lo), hi)
+        else:
+            n_points = int(rng.integers(lo, hi + 1))
         eligible = [c for c in countries if len(self.country_points[c]) >= n_points]
         n_train = None
         if cfg.episodes == "random":

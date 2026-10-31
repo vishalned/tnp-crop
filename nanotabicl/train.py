@@ -169,9 +169,11 @@ def main():
     p = argparse.ArgumentParser(description="(Continued) pretraining of NanoTabICLv2 for regression.")
     p.add_argument("--init", default="official", help="official | scratch | path to a checkpoint (ours or official)")
     p.add_argument("--size", default="small", choices=list(checkpoint.SIZES), help="model size for --init scratch")
-    p.add_argument("--data", default="crop", choices=["crop", "prior", "mix", "prior-matched"],
-                   help="prior-matched: prior tables with the crop batches' shapes (control for --data crop)")
-    p.add_argument("--prior-fraction", type=float, default=0.5, help="share of prior batches with --data mix")
+    p.add_argument("--data", default="crop", choices=["crop", "prior", "mix", "prior-matched", "mix-matched"],
+                   help="prior-matched: prior tables with the crop batches' shapes (control for --data crop); "
+                        "mix-matched: crop batches, and with probability --prior-fraction a prior batch whose shape is "
+                        "drawn from the crop sampler (similar table sizes and feature count)")
+    p.add_argument("--prior-fraction", type=float, default=0.5, help="share of prior batches with --data mix / mix-matched")
     p.add_argument("--table", default=None, help="processed WOFOST table (process_wofost_dataset.py output)")
     p.add_argument("--target", default="yield_t_per_ha")
     p.add_argument("--horizon", default="eos", help="CY-Bench forecast horizon (end_of_sequence): eos | middle-of-season | ...")
@@ -182,6 +184,10 @@ def main():
     p.add_argument("--countries", nargs="+", default=None, help="train on these countries only (names as in the table)")
     p.add_argument("--min-points", type=int, default=10, help="points per table; regions with fewer are dropped")
     p.add_argument("--max-points", type=int, default=None, help="default: up to all points of a region")
+    p.add_argument("--points-sampling", default="uniform", choices=["uniform", "loguniform"],
+                   help="distribution of the number of points per crop table between its lower end and the cap")
+    p.add_argument("--min-table-points", type=int, default=None,
+                   help="lower end of points per table (default: --min-points; regions with fewer points are still dropped)")
     p.add_argument("--max-rows", type=int, default=4096, help="cap on rows per crop table (memory)")
     p.add_argument("--min-context-years", type=int, default=5)
     p.add_argument("--max-context-years", type=int, default=11)
@@ -232,6 +238,7 @@ def main():
         crop = CropTables(args.table, CropTableConfig(
             train_years=args.train_years, target=args.target, horizon=args.horizon, countries=args.countries,
             episodes=args.crop_episodes, min_points=args.min_points, max_points=args.max_points, max_rows=args.max_rows,
+            points_sampling=args.points_sampling, min_table_points=args.min_table_points,
             min_context_years=args.min_context_years, max_context_years=args.max_context_years))
         sizes = {c: len(p) for c, p in crop.country_points.items()}
         print(f"crop table: {len(crop.df)} rows, {crop.features.shape[1]} features, points per region {sizes}"
@@ -241,16 +248,17 @@ def main():
     n_steps = min(args.stop_at or args.steps, args.steps)
 
     streams = {}
-    if args.data in ("crop", "mix"):
+    if args.data in ("crop", "mix", "mix-matched"):
         streams["crop"] = iter(DataLoader(CropStream(crop, args.batch_size, args.seed), batch_size=None))
     if args.data in ("prior", "mix"):
         from nanotabicl.prior_tables import PriorTables
         prior_ds = PriorTables(args.batch_size, max_rows=args.prior_max_rows, max_features=args.prior_max_features, seed=args.seed)
         streams["prior"] = iter(DataLoader(prior_ds, batch_size=None, num_workers=args.num_workers,
                                            persistent_workers=args.num_workers > 0))
-    if args.data == "prior-matched":
+    if args.data in ("prior-matched", "mix-matched"):
         from nanotabicl.prior_tables import MatchedPriorTables, crop_batch_shapes
-        shapes = crop_batch_shapes(crop, args.batch_size, n_steps, args.seed)
+        # mix-matched: fresh draws of the crop sampler (another seed), so the prior tables follow the crop shapes' distribution
+        shapes = crop_batch_shapes(crop, args.batch_size, n_steps, args.seed + (10_000 if args.data == "mix-matched" else 0))
         print(f"prior tables with the crop batches' shapes: rows {min(s[0] for s in shapes)}-{max(s[0] for s in shapes)}, "
               f"features {sorted(set(s[1] for s in shapes))}")
         streams["prior"] = iter(DataLoader(MatchedPriorTables(shapes, args.batch_size, args.seed), batch_size=None,
@@ -266,7 +274,7 @@ def main():
         log.writerow(["step", "source", "loss", "lr", "val_rmse", "val_r2", "val_baseline_rmse", "peak_mem_gb",
                       "table_rows", "table_features", "seconds"])
         for step in range(n_steps):
-            source = "prior" if args.data in ("prior", "prior-matched") or (args.data == "mix" and rng.random() < args.prior_fraction) else "crop"
+            source = "prior" if args.data in ("prior", "prior-matched") or (args.data in ("mix", "mix-matched") and rng.random() < args.prior_fraction) else "crop"
             batch = next(streams[source])
             x, y, n = batch["x"].to(args.device), batch["y"].to(args.device), int(batch["n_train"])
             for group in optimizer.param_groups:

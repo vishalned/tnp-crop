@@ -19,7 +19,10 @@ start_ts=$(date +%s)
 #   sbatch --cpus-per-task=16 --export=ALL,DATA=prior-matched,WORKERS=14,STOP_AT=1000,SAVE_STEPS="500 1000",EVAL=step500.pt,RUN=scm_matched_maize_structured scripts/slurm/run_gpu.sh
 cd /home/vnedungadi/tnp-crop
 MODE=${MODE:-structured}  # structured | random
-DATA=${DATA:-crop}        # crop | prior-matched (control: SCM prior tables with the crop batches' shapes)
+DATA=${DATA:-crop}        # crop | prior-matched (control: SCM prior tables with the crop batches' shapes) | mix-matched (crop + PRIOR_FRACTION SCM tables of similar shapes)
+POINTS_SAMPLING=${POINTS_SAMPLING:-}      # uniform (default) | loguniform: points per crop table
+MIN_TABLE_POINTS=${MIN_TABLE_POINTS:-}    # lower end of points per crop table (default: the region filter, 10)
+PRIOR_FRACTION=${PRIOR_FRACTION:-}        # share of SCM batches with DATA=mix-matched (default 0.5)
 STEPS=${STEPS:-5000}      # length of the learning-rate schedule
 STOP_AT=${STOP_AT:-$STEPS}  # stop early, keeping the schedule of STEPS
 SAVE_STEPS=${SAVE_STEPS:-}  # e.g. "500 1000": also save step<N>.pt
@@ -39,6 +42,8 @@ OUT=/projects/prjs1788/tnp-crop/nanotabicl/$RUN  # project space: home is nearly
 uv run python -u -m nanotabicl.train --init official --data $DATA --crop-episodes $MODE --table $TABLE \
     --steps $STEPS --stop-at $STOP_AT --save-steps $SAVE_STEPS --lr $LR --weight-decay $WD --seed $SEED \
     ${WARMUP_FRAC:+--warmup-fraction $WARMUP_FRAC} --num-workers $WORKERS \
+    ${POINTS_SAMPLING:+--points-sampling $POINTS_SAMPLING} ${MIN_TABLE_POINTS:+--min-table-points $MIN_TABLE_POINTS} \
+    ${PRIOR_FRACTION:+--prior-fraction $PRIOR_FRACTION} \
     ${TRAIN_COUNTRIES:+--countries ${TRAIN_COUNTRIES//:/ }} --micro-batch-size $MICRO_BATCH --checkpoint-activations --out-dir $OUT
 
 # test years (WOFOST tables)

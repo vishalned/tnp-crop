@@ -4,7 +4,8 @@
 #   bash scripts/slurm/submit_exp1.sh          # run on a login node: it only calls sbatch
 #   EXP=exp_1_eu_grid TABLE=/projects/prjs1788/tnp-crop/wofost_eu_grid/processed/wofost_maize_daily.parquet \
 #       bash scripts/slurm/submit_exp1.sh      # same experiment on another WOFOST table (scaling: EU grid)
-#   DATAS=crop       only the WOFOST runs (no SCM control);  AFTER=<jobid>  training waits for that job
+#   DATAS=crop       only the WOFOST runs (no SCM control); DATAS=mix-matched: crop + SCM batches (run name "mix");
+#   EXTRA="POINTS_SAMPLING=loguniform,MIN_TABLE_POINTS=1"  more settings for the training jobs (run_gpu.sh variables);  AFTER=<jobid>  training waits for that job
 #   TRAIN_TIME / TRAIN_MEM  resources of the WOFOST training jobs (default 03:00:00 / 32G)
 #   REFERENCE=copy (default)  copy the default TabICL reference results from $REF_FROM (default exp_1) instead
 #       of running it again (it is deterministic: every run gives the same numbers); REFERENCE=run runs it
@@ -59,15 +60,18 @@ fi
 
 COMMON="STEPS=2000,STOP_AT=2000,LR=1e-5,WD=0.01,WARMUP_FRAC=0.1,EVAL=last.pt,TABLE=$TABLE"
 for data in $DATAS; do
-    name=$([ "$data" = crop ] && echo wofost || echo scm)
+    case $data in crop) name=wofost;; mix-matched) name=mix;; *) name=scm;; esac
     for seed in $SEEDS; do
         run=${name}_seed$seed
         if [ "$data" = crop ]; then
             resources=(--time=$TRAIN_TIME --mem=$TRAIN_MEM)
-            settings="ALL,$COMMON,DATA=crop,SEED=$seed,RUN=$EXP/$run"
+            settings="ALL,$COMMON,DATA=crop,SEED=$seed,RUN=$EXP/$run${EXTRA:+,$EXTRA}"
+        elif [ "$data" = mix-matched ]; then  # crop batches + SCM batches (CPU-bound generation, in the same GPU job)
+            resources=(--time=$TRAIN_TIME --mem=$TRAIN_MEM --cpus-per-task=16)
+            settings="ALL,$COMMON,DATA=mix-matched,WORKERS=14,SEED=$seed,RUN=$EXP/$run${EXTRA:+,$EXTRA}"
         else  # prior generation is CPU-bound
             resources=(--time=04:00:00 --cpus-per-task=16)
-            settings="ALL,$COMMON,DATA=prior-matched,WORKERS=14,SEED=$seed,RUN=$EXP/$run"
+            settings="ALL,$COMMON,DATA=prior-matched,WORKERS=14,SEED=$seed,RUN=$EXP/$run${EXTRA:+,$EXTRA}"
         fi
         train=$(sbatch --parsable "${resources[@]}" ${AFTER:+--dependency=afterok:$AFTER} --job-name="$EXP-$run" \
             --output="$LOGS/train_${run}_%j.out" --error="$LOGS/train_${run}_%j.err" \
