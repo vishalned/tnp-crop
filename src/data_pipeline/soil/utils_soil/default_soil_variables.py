@@ -34,7 +34,7 @@ def default_soilgrid_d_factors():
 
 def default_som_content():
     """
-    Default soil organic matter content, it is assumed to be 58%
+    Default fraction of soil organic matter that is carbon (58%): organic matter = soil organic carbon / 0.58
     """
 
     return 0.58

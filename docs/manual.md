@@ -164,7 +164,10 @@ The column-by-column description of the files is in
 2. **Water-retention curves:** the Wösten pedotransfer functions turn texture,
    bulk density and organic matter into **van Genuchten** parameters per layer
    (`calculate_van_genuchten`, `PedotransferFunctionsWosten`; organic matter =
-   SOC × 0.58 × 0.1, residual moisture fixed at 0.01).
+   SOC × 0.1 / 0.58 (SOC in g/kg → %, carbon is 58 % of organic matter), residual
+   moisture fixed at 0.01). Until 2026-10-30 this was SOC × 0.58 × 0.1 (organic
+   matter ~3× too low); see `docs/soc_fix_report.md`. Soil files made before the fix
+   are in `soilgrids_gee/` and must not be used.
 3. **PCSE soil profile:** for each layer, soil moisture and log-conductivity
    are tabulated against pF (`generate_df_soil_input`) and written as a
    multi-layer `SoilProfileDescription` (`generate_soil_yaml`): field capacity
@@ -173,9 +176,12 @@ The column-by-column description of the files is in
 4. **Static features** from the **top layer** (`compute_topsoil_static_features`):
    `bulk_density` = SoilGrids' value; `awc` = moisture at pF 2.0 − moisture
    at pF 4.2 (available water capacity, cm³/cm³).
-5. **Cache:** `$DATA/raw/soilgrids_gee/soil_{lon}_{lat}.yaml` +
-   `soil_{lon}_{lat}_static_features.json`. An existing file is reused
-   (soil depends only on location).
+5. **Cache:** `$DATA/raw/soilgrids_gee_omfix/soil_{lon}_{lat}.yaml` +
+   `soil_{lon}_{lat}_static_features.json` (`$TNP_SOIL_DIR` overrides the folder). An existing
+   file is reused (soil depends only on location). The raw SoilGrids values are kept in one table,
+   `$DATA/raw/soilgrids_raw/soilgrids_raw_<locations>.parquet`
+   (`download_raw_soilgrids.py`; `$TNP_RAW_SOIL` makes the pipeline read it instead of Earth
+   Engine, `$TNP_SOIL_NO_DOWNLOAD=1` makes a missing location an error).
 
 ### 3.4 Weather
 
@@ -199,6 +205,10 @@ The column-by-column description of the files is in
   fetches only its elevation, and recomputes LAT/LON/ELEV and E0/ES0/ET0
   (`records_for_location`); this reproduces a download exactly. Points within
   0.001° of a pixel edge always download.
+- **Season files:** one daily CSV per season (the batch runner no longer writes
+  the summary JSON; the manifest has its fields). Finished runs are packed into
+  `<run>/<crop>.tar.zst` (`scripts/slurm/pack_season_files.sh`) because the
+  project space has a limit of ~1.1 M files; unpack before reprocessing.
 
 ---
 
@@ -226,7 +236,9 @@ The column-by-column description of the files is in
 ```
 data/raw/
 ├── locations/locations_{crop}.csv                 # §2; row number = location_index
-├── soilgrids_gee/
+├── soilgrids_raw/soilgrids_raw_<locations>.parquet  # raw SoilGrids values, one row per location and depth
+├── soilgrids_gee/                                 # OLD soil files (OM bug), do not reuse
+├── soilgrids_gee_omfix/
 │   ├── soil_{lon}_{lat}.yaml                      # PCSE multi-layer soil profile
 │   └── soil_{lon}_{lat}_static_features.json      # {"awc": ..., "bulk_density": ...}
 ├── weather/weather_{lon}_{lat}_gee_era5_land.csv  # daily PCSE weather records

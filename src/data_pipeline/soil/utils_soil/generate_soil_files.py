@@ -28,7 +28,7 @@ def calculate_van_genuchten(
         lower_boundary_top_soil: float = 100.,
     ) -> pd.DataFrame:
 
-    f_C_to_OM = default_som_content()
+    f_C_in_OM = default_som_content()  # carbon is ~58% of organic matter
     pml_to_pct = 0.1
 
     ptfw = PedotransferFunctionsWosten()
@@ -36,7 +36,7 @@ def calculate_van_genuchten(
     df_vgp["C"] = df_soilgrids.clay.copy()
     df_vgp["D"] = df_soilgrids.bdod.copy()
     df_vgp["S"] = df_soilgrids.silt.copy()
-    df_vgp["OM"] = df_soilgrids.soc.copy() * pml_to_pct * f_C_to_OM
+    df_vgp["OM"] = df_soilgrids.soc.copy() * pml_to_pct / f_C_in_OM  # OM = SOC / 0.58 (van Bemmelen: SOC x 1.724)
     # assume low residual soil moisture content
     theta_r = 0.01
 

@@ -20,7 +20,30 @@ from src.data_pipeline.soil.utils_soil.soil_static_features import compute_topso
 
 
 root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-DEFAULT_SOIL_SAVE_DIR = os.path.join(RAW_DIR, "soilgrids_gee")
+# The OM = SOC / 0.58 fix changed every soil file: the old cache `soilgrids_gee` (OM = SOC x 0.58) must never be
+# reused, so the default is a new folder (`$TNP_SOIL_DIR` overrides it, e.g. a job-local scratch folder).
+DEFAULT_SOIL_SAVE_DIR = os.environ.get("TNP_SOIL_DIR", os.path.join(RAW_DIR, "soilgrids_gee_omfix"))
+_RAW_SOIL = None  # {(longitude, latitude): DataFrame of the location's 6 depth layers}, loaded once per process
+
+
+def _raw_soilgrids(longitude: float, latitude: float):
+    """The location's raw SoilGrids table (`get_df_soilgrids_gee`'s result) from the table in `$TNP_RAW_SOIL`
+    (`download_raw_soilgrids.py`), or from Earth Engine if that is not set. With `$TNP_SOIL_NO_DOWNLOAD=1` a
+    location missing from the table is an error, not a download."""
+    global _RAW_SOIL
+    path = os.environ.get("TNP_RAW_SOIL")
+    if path:
+        if _RAW_SOIL is None:
+            import pandas as pd
+
+            table = pd.read_parquet(path)
+            _RAW_SOIL = {key: g.drop(columns=["location_index"]).reset_index(drop=True)
+                         for key, g in table.groupby(["longitude", "latitude"], sort=False)}
+        if (longitude, latitude) in _RAW_SOIL:
+            return _RAW_SOIL[(longitude, latitude)].copy()
+    if os.environ.get("TNP_SOIL_NO_DOWNLOAD") == "1":
+        raise RuntimeError(f"No raw SoilGrids values for ({longitude}, {latitude}) in {path}; soil download is disabled.")
+    return get_df_soilgrids_gee(None, longitude=longitude, latitude=latitude)
 
 
 def generate_soil_file_from_gee(
@@ -65,7 +88,7 @@ def generate_soil_file_from_gee(
             static_features = json.load(f)
         return {"path": path_file, "static_features": static_features}
 
-    df_soilgrids = get_df_soilgrids_gee(soil_cfg, longitude=longitude, latitude=latitude)
+    df_soilgrids = _raw_soilgrids(longitude, latitude) if soil_cfg is None else get_df_soilgrids_gee(soil_cfg, longitude=longitude, latitude=latitude)
 
     vg_data = calculate_van_genuchten(df_soilgrids)
     df_soil_input = generate_df_soil_input(vg_data)

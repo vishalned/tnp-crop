@@ -204,9 +204,17 @@ def _is_gee_size_error(exc: Exception) -> bool:
     return any(k in msg for k in ("memory limit", "timed out", "too many", "limit exceeded", "payload"))
 
 
+def _forbid_download() -> None:
+    """With `$TNP_NO_GEE_WEATHER=1` (reruns that must use the caches only) any Earth Engine weather/elevation
+    request is an error, so a missing cache file shows up as a failed season, never as a silent download."""
+    if os.environ.get("TNP_NO_GEE_WEATHER") == "1":
+        raise RuntimeError("Weather/elevation download disabled (TNP_NO_GEE_WEATHER=1): not in the cache.")
+
+
 def request_gee_elevation(latitude: float, longitude: float) -> float:
     """Elevation (m) at a point from `ELEVATION_ASSET`, one small request.
     Falls back to 0 m where the DEM has no data (it spans 56S-84N)."""
+    _forbid_download()
     ensure_ee_initialized()
     ee = _import_ee()
     value = (
@@ -238,6 +246,7 @@ def request_gee_era5_land_raw(
     so later locations don't pay for the same failure again.
     """
     global _chunk_days
+    _forbid_download()
     ensure_ee_initialized()
     ee = _import_ee()
 
