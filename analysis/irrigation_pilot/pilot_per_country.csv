@@ -1,0 +1,5 @@
+country,locations,seasons,failed_seasons,old_soil_rainfed,rainfed,irrigated_pp,cybench,irrigated_share_matching_cybench,irrigation_gain_pct,sd_rainfed,sd_pp,year_to_year_r_0pct,year_to_year_r_25pct,year_to_year_r_50pct,year_to_year_r_75pct,year_to_year_r_100pct
+Spain,75,3600,0,1.527,1.028,13.691,8.701,0.606,1232.422,1.118,1.966,0.331,0.027,-0.251,-0.382,-0.44
+Italy,75,3600,0,6.485,4.482,12.502,7.633,0.393,178.948,3.487,1.27,0.569,0.538,0.48,0.381,0.232
+Germany,75,3510,0,10.492,9.099,13.321,9.227,0.03,46.398,3.271,0.789,0.696,0.695,0.685,0.636,0.379
+Poland,72,3426,144,11.072,10.4,13.085,6.043,0.0,25.818,2.685,0.875,0.647,0.636,0.606,0.519,0.29
