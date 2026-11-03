@@ -29,7 +29,7 @@ set -euo pipefail
 echo "Job started at:  $(date)"
 start_ts=$(date +%s)
 
-cd /home/vnedungadi/tnp-crop
+cd ${REPO:-/home/vnedungadi/tnp-crop}
 LOCATIONS=${LOCATIONS:-data/raw/locations/locations_maize_eu27_dense700_s42.csv}
 RAW=${RAW:?set RAW (the output root)}
 SOIL_TABLE=${SOIL_TABLE:-}

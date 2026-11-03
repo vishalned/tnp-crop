@@ -23,12 +23,13 @@ case "${1:?variant: omfix | pp}" in
     pp)    RUN=wofost_eu_grid_dense_pp;    SOIL_TABLE="";        OFFLINE_WEATHER=1; GEN_ARGS="--model-name Wofost81_PP"; PACK="maize" ;;
     *) echo "unknown variant $1"; exit 1 ;;
 esac
-N=$(( $(wc -l < $REPO/$LOCATIONS) - 1 ))
+LOC_FILE=$LOCATIONS; [ "${LOCATIONS:0:1}" = "/" ] || LOC_FILE=$REPO/$LOCATIONS
+N=$(( $(wc -l < $LOC_FILE) - 1 ))
 if [ "${TEST:-0}" = 1 ]; then RAW=$ROOT/${RUN}_test; CHUNK=12; NCHUNK=1; else RAW=$ROOT/$RUN; CHUNK=1800; NCHUNK=$(( (N + CHUNK - 1) / CHUNK )); fi
 mkdir -p $RAW
 
 sim=$($SBATCH --parsable --array=0-$((NCHUNK - 1))%2 --job-name=$RUN \
-    --export=ALL,LOCATIONS=$LOCATIONS,RAW=$RAW,CHUNK=$CHUNK,SOIL_TABLE=$SOIL_TABLE,OFFLINE_WEATHER=$OFFLINE_WEATHER,GEN_ARGS="$GEN_ARGS",PACK="$PACK" \
+    --export=ALL,REPO=$REPO,LOCATIONS=$LOCATIONS,RAW=$RAW,CHUNK=$CHUNK,SOIL_TABLE=$SOIL_TABLE,OFFLINE_WEATHER=$OFFLINE_WEATHER,GEN_ARGS="$GEN_ARGS",PACK="$PACK" \
     $REPO/scripts/slurm/run_wofost_chunks.sh)
 echo "simulation + processing: array job $sim ($NCHUNK chunks of $CHUNK rows of $N) -> $RAW"
 [ "${TEST:-0}" = 1 ] && exit 0
