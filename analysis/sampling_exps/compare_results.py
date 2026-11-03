@@ -34,9 +34,41 @@ RUNS = {
     "A: log-uniform points": ("exp_2a_loguniform_points", W),
     "B: log-uniform points + 50 % SCM": ("exp_2b_loguniform_points_scm", "tabicl_wofost:mix"),
 }
-COLORS = ["#7a7a7a", "#f2c9a0", "#c9b8e8", "#8f7cc4", "#7fcdb5", "#1b9e77", "#d95f02", "#b3122e"]
+# the clean figure (same names and colours as analysis/soc_fix): label in the figure -> (run above, colour)
+PLOT = {
+    "TabICL default": ("TabICL default", "#7a7a7a"),
+    "SCM control": ("SCM control (EU grid shapes)", "#f2c9a0"),
+    "WOFOST, EU grid": ("WOFOST, EU grid", "#8f7cc4"),
+    "WOFOST, densified (old soil)": ("WOFOST, densified, old soil", "#7fcdb5"),
+    "WOFOST, densified (OM fix, new soil)": ("WOFOST, densified, OM fix (baseline)", "#1b9e77"),
+    "+ log-uniform points per table": ("A: log-uniform points", "#e08a1e"),
+    "+ log-uniform points + 50 % SCM tables": ("B: log-uniform points + 50 % SCM", "#b3122e"),
+}
 BASELINE, A, B = list(RUNS)[5], list(RUNS)[6], list(RUNS)[7]
 
+
+def draw(per_country, countries, plot, path, suptitle):
+    plt.rcParams.update({"font.size": 10, "axes.spines.top": False, "axes.spines.right": False})
+    fig, axes = plt.subplots(2, 1, figsize=(16, 7.8), sharex=True)
+    n = len(plot)
+    w = 0.86 / n
+    x = np.arange(len(countries) + 1) + (np.arange(len(countries) + 1) >= len(countries)) * 0.6  # gap before the mean group
+    for ax, metric, title in ((axes[0], "nrmse", "NRMSE (lower is better)"), (axes[1], "anomaly_r", "anomaly r (higher is better)")):
+        for i, (label, (run, color)) in enumerate(plot.items()):
+            vals = per_country[metric][run].tolist() + [per_country[metric][run].mean()]
+            pos = x + (i - (n - 1) / 2) * w
+            ax.bar(pos, vals, w, color=color, label=label)
+            ax.text(pos[-1], vals[-1] + (0.003 if metric == "nrmse" else 0.01), f"{vals[-1]:.3f}", ha="center", fontsize=6, rotation=90)
+        ax.axvline(len(countries) - 0.3, color="k", lw=0.7, ls=":")
+        ax.axhline(0, color="k", lw=0.6)
+        ax.set_ylabel(title)
+        ax.grid(axis="y", color="#e5e5e5", lw=0.6)
+        ax.set_axisbelow(True)
+    axes[1].set_xticks(x, countries + ["mean of all"])
+    axes[0].legend(fontsize=8, ncol=3, frameon=False, loc="upper left")
+    fig.suptitle(suptitle)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
 
 def main():
     frames = []
@@ -71,19 +103,10 @@ def main():
                   f"(mean diff {d.mean():+.4f}); anomaly r higher in {(a > 0).sum()} (mean diff {a.mean():+.4f})")
 
     countries = per_country.index.tolist()
-    fig, axes = plt.subplots(2, 1, figsize=(17, 8), sharex=True)
-    n = len(runs)
-    x, w = np.arange(len(countries)), 0.8 / n
-    for ax, metric, title in ((axes[0], "nrmse", "NRMSE (lower is better)"), (axes[1], "anomaly_r", "anomaly r (higher is better)")):
-        for i, run in enumerate(runs):
-            ax.bar(x + (i - (n - 1) / 2) * w, per_country[metric][run], w, color=COLORS[list(RUNS).index(run)], label=run)
-        ax.set_ylabel(title)
-    axes[1].set_xticks(x, countries)
-    axes[0].legend(fontsize=7, ncol=4, frameon=False)
-    fig.suptitle("CY-Bench walk-forward, 18 European maize countries: table-sampling experiments vs earlier runs (mean over 3 pretraining seeds)")
-    fig.tight_layout()
-    fig.savefig(f"{OUT}/figures/comparison.png", dpi=140)
-
+    title = "CY-Bench walk-forward, 18 European maize countries: table-sampling experiments (mean over 3 pretraining seeds)"
+    draw(per_country, countries, PLOT, f"{OUT}/figures/comparison_with_50p_scm.png", title)
+    no_scm = {k: v for k, v in PLOT.items() if "SCM tables" not in k}  # without the 50 % SCM run (B)
+    draw(per_country, countries, no_scm, f"{OUT}/figures/comparison.png", title)
 
 if __name__ == "__main__":
     main()
