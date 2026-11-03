@@ -1,0 +1,8 @@
+run,r2_mean,temporal_r_mean
+TabICL default,-0.0748,0.6086
+SCM control,-0.0801,0.5693
+"WOFOST, EU grid",0.0073,0.5487
+"WOFOST, densified (old soil)",-0.024,0.6131
+"WOFOST, densified (OM fix, new soil)",-0.0449,0.6353
++ log-uniform points per table,-0.049,0.6227
++ irrigation map (MIRCA-OS 2015),-0.006,0.6874

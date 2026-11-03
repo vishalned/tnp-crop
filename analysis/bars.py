@@ -15,6 +15,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# metric -> (axis label, offset of the number above a mean bar); all are columns of results/runs.csv (the benchmark's per-run metrics)
+METRICS = {
+    "nrmse": ("NRMSE (lower is better)", 0.004),
+    "anomaly_r": ("anomaly r (higher is better)", 0.01),
+    "r2": ("R² (higher is better)", 0.01),
+    "temporal_r": ("temporal r (higher is better)", 0.01),
+    "spatial_r": ("spatial r (higher is better)", 0.01),
+}
 RUNS_CSV = os.path.join(os.path.dirname(HERE), "results", "runs.csv")
 
 
@@ -31,33 +39,34 @@ def values(runs: pd.DataFrame, experiment: str, setting: str, seed="mean") -> pd
     if d.empty:
         raise KeyError(f"no results for {experiment} / {setting} / seed {seed}")
     g = d.groupby("country")
-    out = g[["nrmse", "anomaly_r"]].mean()
+    out = g[list(METRICS)].mean()
     out["n_region_years"] = g.n_region_years.first()
     if len(out) != 18:
         raise ValueError(f"{experiment} / {setting}: {len(out)} countries, expected 18")
     return out
 
 
-def draw(entries: list, path: str, title: str, weighted: bool = False, figsize=(16, 7.8), title_size=None) -> pd.DataFrame:
-    """entries: [{"label", "color", "values"}]. Returns the mean (and weighted mean) of each run."""
+def draw(entries: list, path: str, title: str, weighted: bool = False, figsize=(16, 7.8), title_size=None,
+         metrics=("nrmse", "anomaly_r")) -> pd.DataFrame:
+    """entries: [{"label", "color", "values"}]; one row of bars per metric (two by default). Returns the mean (and weighted mean) of each run."""
     countries = sorted(entries[0]["values"].index)
     summary = []
     for e in entries:
         v = e["values"].loc[countries]
-        row = {"run": e["label"], "nrmse_mean": v.nrmse.mean(), "anomaly_r_mean": v.anomaly_r.mean()}
+        row = {"run": e["label"], **{f"{m}_mean": v[m].mean() for m in metrics}}
         if weighted:
-            row.update(nrmse_weighted=np.average(v.nrmse, weights=v.n_region_years),
-                       anomaly_r_weighted=np.average(v.anomaly_r, weights=v.n_region_years))
+            row.update({f"{m}_weighted": np.average(v[m], weights=v.n_region_years) for m in metrics})
         summary.append(row)
     summary = pd.DataFrame(summary).set_index("run")
 
     plt.rcParams.update({"font.size": 10, "axes.spines.top": False, "axes.spines.right": False})
-    fig, axes = plt.subplots(2, 1, figsize=figsize, sharex=True)
+    fig, axes = plt.subplots(len(metrics), 1, figsize=figsize, sharex=True)
     n_groups = 2 if weighted else 1
     n, w = len(entries), 0.86 / len(entries)
     k = len(countries) + n_groups
     x = np.arange(k) + (np.arange(k) >= len(countries)) * 0.6  # a gap before the mean group(s)
-    for ax, metric, ylabel in ((axes[0], "nrmse", "NRMSE (lower is better)"), (axes[1], "anomaly_r", "anomaly r (higher is better)")):
+    for ax, metric in zip(axes, metrics):
+        ylabel, offset = METRICS[metric]
         for i, e in enumerate(entries):
             v = e["values"].loc[countries, metric].tolist() + [summary.loc[e["label"], f"{metric}_mean"]]
             if weighted:
@@ -65,7 +74,7 @@ def draw(entries: list, path: str, title: str, weighted: bool = False, figsize=(
             pos = x + (i - (n - 1) / 2) * w
             ax.bar(pos, v, w, color=e["color"], label=e["label"])
             for p, val in zip(pos[-n_groups:], v[-n_groups:]):  # the numbers on the mean group(s)
-                off = (0.004 if metric == "nrmse" else 0.01) if not weighted else (0.004 if metric == "nrmse" else 0.01) * (1 if val >= 0 else -2.5)
+                off = offset if not weighted else offset * (1 if val >= 0 else -2.5)
                 ax.text(p, val + off, f"{val:.3f}", ha="center", fontsize=5.5 if weighted else 6, rotation=90)
         ax.axvline(len(countries) - 0.3, color="k", lw=0.7, ls=":")
         ax.axhline(0, color="k", lw=0.6)

@@ -2,3 +2,8 @@
   title: "CY-Bench walk-forward, 18 European maize countries: irrigation map (pretraining seed 0)"
   seed: 0
   runs: [tabicl_default, scm_control, wofost_eu_grid, wofost_dense_old_soil, wofost_omfix, loguniform, irrigation_map]
+- file: irrigation_map_seed0_r2_temporal_r.png
+  title: "CY-Bench walk-forward, 18 European maize countries: irrigation map, R² and temporal r (pretraining seed 0)"
+  seed: 0
+  metrics: [r2, temporal_r]
+  runs: [tabicl_default, scm_control, wofost_eu_grid, wofost_dense_old_soil, wofost_omfix, loguniform, irrigation_map]

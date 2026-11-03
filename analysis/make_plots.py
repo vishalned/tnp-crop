@@ -2,7 +2,7 @@
 
     uv run python -m analysis.make_plots [experiment ...]        # experiments/<id>/plots.yaml -> experiments/<id>/figures/
 
-A plots.yaml is a list of plots: {file, title, seed (mean | 0 | ...), weighted (optional), figsize (optional), title_size (optional),
+A plots.yaml is a list of plots: {file, title, seed (mean | 0 | ...), metrics (optional: two or more of nrmse, anomaly_r, r2, temporal_r, spatial_r), weighted (optional), figsize (optional), title_size (optional),
 runs: [name | {use: name, label: ...} | {label, experiment, setting, color}]}. Names are in analysis/runs.yaml. Next to each figure a CSV with the
 mean over the countries (and weighted mean) of every run is written.
 """
@@ -32,7 +32,8 @@ def main(only=()):
                                 "values": values(runs, r["experiment"], r["setting"], plot.get("seed", "mean"))})
             out = f"{ROOT}/experiments/{path}/figures/{plot['file']}"
             summary = draw(entries, out, plot["title"], weighted=plot.get("weighted", False),
-                           figsize=tuple(plot.get("figsize", (16, 7.8))), title_size=plot.get("title_size"))
+                           figsize=tuple(plot.get("figsize", (16, 7.8))), title_size=plot.get("title_size"),
+                           metrics=tuple(plot.get("metrics", ("nrmse", "anomaly_r"))))
             summary.round(4).to_csv(out.rsplit(".", 1)[0] + ".csv")
             print(f"{path}/figures/{plot['file']}: {len(entries)} runs")
 
