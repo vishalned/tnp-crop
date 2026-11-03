@@ -58,6 +58,7 @@ class CropTableConfig:
     points_sampling: str = "uniform"  # points per table: "uniform" over [lower, cap] or "loguniform" (many small tables, few large)
     obs_noise: bool = False  # observational noise on fpar / ssm / rsm in the training tables (nanotabicl/obs_noise.py)
     obs_noise_seed: int = 0
+    permute_yields: bool = False  # sanity test: shuffle the yields among the rows of each training table (features keep their rows)
     min_table_points: Optional[int] = None  # lower end of points per table; None = min_points (the region filter is unchanged)
     max_rows: int = 4096  # cap on rows per table (memory)
     min_context_years: int = 5  # structured episodes
@@ -157,7 +158,10 @@ class CropTables:
                 if len(tables) == batch_size:
                     idx = np.stack(tables)
                     x = self.features[idx]  # a copy
-                    batch = {"y": torch.from_numpy(self.y[idx]), "n_train": n_train}
+                    y = self.y[idx]
+                    if cfg.permute_yields:  # yields shuffled over all rows (context and query) of each table: no feature -> yield signal left
+                        y = np.stack([row[rng.permutation(len(row))] for row in y])
+                    batch = {"y": torch.from_numpy(y), "n_train": n_train}
                     if self.noise is not None:  # sigma / bg once per table, the noise per value; the draws are returned for the log
                         params = np.stack([self.noise.draw() for _ in range(len(idx))])
                         for b in range(len(idx)):

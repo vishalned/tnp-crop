@@ -408,3 +408,12 @@ def test_regressor_ensemble_matches_tabicl_regressor():
     raw = official.fit(x[:100], y[:100]).predict(x[100:], output_type="raw_quantiles")
     np.testing.assert_allclose(pred, raw.mean(-1), rtol=1e-3, atol=1e-3)
 
+
+def test_permute_yields_keeps_each_tables_yield_values_but_breaks_the_row_link(table_path):
+    base = CropTables(table_path, CropTableConfig())
+    perm = CropTables(table_path, CropTableConfig(permute_yields=True))
+    a = base.sample_batch(np.random.default_rng(3), batch_size=4)
+    b = perm.sample_batch(np.random.default_rng(3), batch_size=4)
+    assert torch.equal(a["x"], b["x"]) and a["n_train"] == b["n_train"]  # same tables and features
+    assert torch.allclose(a["y"].sort(dim=1).values, b["y"].sort(dim=1).values)  # same yields per table
+    assert not torch.equal(a["y"], b["y"])

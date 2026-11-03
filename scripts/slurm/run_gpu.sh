@@ -44,7 +44,7 @@ uv run python -u -m nanotabicl.train --init official --data $DATA --crop-episode
     --steps $STEPS --stop-at $STOP_AT --save-steps $SAVE_STEPS --lr $LR --weight-decay $WD --seed $SEED \
     ${WARMUP_FRAC:+--warmup-fraction $WARMUP_FRAC} --num-workers $WORKERS \
     ${POINTS_SAMPLING:+--points-sampling $POINTS_SAMPLING} ${MIN_TABLE_POINTS:+--min-table-points $MIN_TABLE_POINTS} \
-    ${PRIOR_FRACTION:+--prior-fraction $PRIOR_FRACTION} ${OBS_NOISE:+--obs-noise} \
+    ${PRIOR_FRACTION:+--prior-fraction $PRIOR_FRACTION} ${OBS_NOISE:+--obs-noise} ${PERMUTE_YIELDS:+--permute-yields} \
     ${TRAIN_COUNTRIES:+--countries ${TRAIN_COUNTRIES//:/ }} --micro-batch-size $MICRO_BATCH --checkpoint-activations --out-dir $OUT
 
 # test years (WOFOST tables)

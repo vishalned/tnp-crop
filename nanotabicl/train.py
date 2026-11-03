@@ -186,6 +186,8 @@ def main():
     p.add_argument("--max-points", type=int, default=None, help="default: up to all points of a region")
     p.add_argument("--points-sampling", default="uniform", choices=["uniform", "loguniform"],
                    help="distribution of the number of points per crop table between its lower end and the cap")
+    p.add_argument("--permute-yields", action="store_true",
+                   help="sanity test: shuffle the yields among the rows of every crop training table (destroys the feature -> yield link)")
     p.add_argument("--obs-noise", action="store_true",
                    help="observational noise on fpar / ssm / rsm in the crop training tables (nanotabicl/obs_noise.py); "
                         "sigma and bg per table are logged to noise_params.csv")
@@ -242,7 +244,7 @@ def main():
             train_years=args.train_years, target=args.target, horizon=args.horizon, countries=args.countries,
             episodes=args.crop_episodes, min_points=args.min_points, max_points=args.max_points, max_rows=args.max_rows,
             points_sampling=args.points_sampling, min_table_points=args.min_table_points,
-            obs_noise=args.obs_noise, obs_noise_seed=args.seed,
+            obs_noise=args.obs_noise, obs_noise_seed=args.seed, permute_yields=args.permute_yields,
             min_context_years=args.min_context_years, max_context_years=args.max_context_years))
         sizes = {c: len(p) for c, p in crop.country_points.items()}
         print(f"crop table: {len(crop.df)} rows, {crop.features.shape[1]} features, points per region {sizes}"
