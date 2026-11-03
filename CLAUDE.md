@@ -7,15 +7,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Crop-yield prediction from WOFOST-simulated growing seasons. Parts of the repo:
 
 1. **Data pipeline** (`src/data_pipeline/`, `src/data_checks/`) — picks locations, pulls soil (SoilGrids) and weather (ERA5-Land) from Google Earth Engine, runs WOFOST via PCSE, and turns the runs into one training table per crop.
-2. **Models**: `nanotabicl/`, self-contained plain-PyTorch NanoTabICLv2 (TabICLv2) training/evaluation. Does **not** use Hydra/Lightning; it only reads the processed Parquet table.
-3. **Template skeleton**: `src/train.py`, `src/eval.py`, `src/utils/`, `configs/` from the lightning-hydra-template, kept basic. The old TNP-D model/datamodule code was removed; `configs/data/tnp.yaml`, `configs/model/tnp.yaml` and `configs/experiment/tnp_synthetic.yaml` are kept for reference but point to removed modules, so `src/train.py` needs a new model/datamodule before it runs.
-4. **Analysis**: `experiments/early_results/plot_results.py` makes the result figures (`experiments/early_results/figures/`) from `docs/results_*.csv`; `experiments/eu_grid_scaling/` has the EU grid (scaling) figures, described in `docs/scaling_report.md`.
+2. **Models**: `nanotabicl/`, self-contained plain-PyTorch NanoTabICLv2 (TabICLv2) training/evaluation; it only reads the processed Parquet table. Training is configured with **Hydra** (`configs/`): config groups `model`, `data`, `sampler`, `source`, `recipe`, `paths` and `transform`, and one file per experiment in `configs/experiment/`. Behaviour that differs between experiments (points sampler, table transforms such as observational noise, the crop/prior mix) is a plug-in class chosen in the config (`nanotabicl/samplers.py`, `transforms.py`, `sources.py`), not a flag.
+3. **Experiments and results**: `experiments/<id>/` (README, plots, experiment-specific scripts and figures), `results/runs.csv` (every benchmark result in one table, built by `analysis/collect_results.py`), `analysis/` (shared tools: `bars.py` + `make_plots.py` draw the bar plots from the registry, `runs.yaml` names the runs, `feature_importance/`). `docs/experiments.md` is the index.
 
 `docs/manual.md` is a full walkthrough of the pipeline end to end (with file/function pointers and known simplifications); `docs/data_dictionary.md` describes every column; `nanotabicl/README.md` covers the model side in detail. Read these before changing behavior in those areas, and keep them in sync when you do.
 
 ## Environment & commands
 
-Uses `uv` (not conda); `uv.lock` and `.python-version` are committed, and `uv run` handles the `.venv`. Extras: `train` (torch/lightning), `data` (pcse, earthengine, zarr…), `nanotabicl` (needs `train` too for torch), `dev`.
+Uses `uv` (not conda); `uv.lock` and `.python-version` are committed, and `uv run` handles the `.venv`. Extras: `train` (torch), `data` (pcse, earthengine, zarr…), `nanotabicl` (needs `train` too for torch), `dev`.
 
 ```bash
 uv sync --extra train --extra nanotabicl          # NanoTabICL work
@@ -41,9 +40,10 @@ uv run python -m src.data_checks.coverage_audit   --manifest $DATA/raw/wofost/da
 uv run python -m src.data_checks.simulation_audit --manifest $DATA/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_maize.csv
 uv run python -m src.data_pipeline.wofost.process_wofost_dataset --manifest $DATA/raw/wofost/dataset_manifest.csv --locations-csv data/raw/locations/locations_maize.csv
 uv run python -m nanotabicl.checkpoint             # download+convert official weights (needs internet: run on a login node)
-uv run python -m nanotabicl.train --init official --data crop --crop-episodes structured --table $DATA/processed/wofost_maize_daily.parquet ...
-uv run python -m nanotabicl.evaluate --checkpoint <out>/best.pt --table ... --years 2019 2020   # --checkpoint official = zero-shot
-sbatch scripts/slurm/run_gpu.sh                    # GPU training + test eval on an A100 (MODE=structured|random)
+uv run python -m nanotabicl.train experiment=exp_2a_loguniform_points seed=0   # a Hydra experiment config; override anything, e.g. recipe.steps=50 data.table=...
+uv run python -m nanotabicl.evaluate --checkpoint <out>/last.pt --years 2019 2020   # the table defaults to the training table; --checkpoint official = zero-shot
+sbatch --export=ALL,EXPERIMENT=exp_2a_loguniform_points,SEED=0 scripts/slurm/run_gpu.sh   # GPU training + test eval on an A100
+bash scripts/slurm/submit_experiment.sh exp_2a_loguniform_points   # training -> CY-Bench -> summary (SEEDS="0 1 2"); then analysis.collect_results, analysis.make_plots
 ```
 
 ## Setup prerequisites (one-time, per machine)
@@ -65,8 +65,10 @@ sbatch scripts/slurm/run_gpu.sh                    # GPU training + test eval on
 - Run outputs: `--out-dir` gets `config.json`, `log.csv`, `best.pt` (lowest val RMSE), `last.pt`; evaluate writes `metrics_<years>.json` and `predictions_<years>.csv`.
 
 ## Conventions
+- **Experiments are configs, not flags.** An experiment is a file in `configs/experiment/` (the groups it changes, `name: <id>/<tag>_seed${seed}`, the table). New behaviour goes in as a small plug-in class (`samplers.py`, `transforms.py`, `sources.py`) with a config file in the matching group, off by default, with a test; never as an `if args.<experiment>` in `train.py` or `crop_tables.py`. `tests/test_golden.py` (sampler batches and the mix coin vs the pre-refactor code), `tests/test_train_hydra.py` (the loss curve vs the old loop) and `tests/test_experiment_configs.py` (every config vs what the old runs used) guard this.
+- **Results go through `results/runs.csv`**: after an experiment, `uv run python -m analysis.collect_results`, add the run to `analysis/runs.yaml` and the plot to `experiments/<id>/plots.yaml`, `uv run python -m analysis.make_plots`; document it in `docs/experiments.md`. Figures are rebuilt from the registry, not from cluster files.
 
-- `nanotabicl/model.py` and `nanotabicl/prior.py` are vendored unchanged from soda-inria/nanotabicl @ `4a7f9c7` (BSD-3). Don't edit them; put changes in our own files (`checkpoint.py`, `crop_tables.py`, `prior_tables.py`, `train.py`, `evaluate.py`).
+- `nanotabicl/model.py` and `nanotabicl/prior.py` are vendored unchanged from soda-inria/nanotabicl @ `4a7f9c7` (BSD-3). Don't edit them; put changes in our own files (`checkpoint.py`, `crop_tables.py`, `samplers.py`, `transforms.py`, `sources.py`, `prior_tables.py`, `train.py`, `evaluate.py`).
 - `checkpoint.py`'s conversion of the official TabICLv2 weights is verified to be exact (all weights randomised, real grouping settings; `NanoTabICL` with `official_feature_grouping` fixes the vendored model's off-by-one column grouping); keep it that way.
 - `NanoTabICLRegressor(n_estimators=k)` = TabICL's test-time ensemble (`ensemble.py`), tested equal to `TabICLRegressor(n_estimators=k)`; compare against default TabICL with `n_estimators=8`.
 - On the HPC cluster, run heavy jobs through SLURM (`scripts/slurm/`), not on login nodes; logs go to `slurm_logs/`.

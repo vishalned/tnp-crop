@@ -127,7 +127,7 @@ The number of windows depends on each country's season length, so the column set
 
 The WOFOST side (`docs/data_dictionary.md`): per-location ERA5-Land weather caches (full calendar
 years, PCSE units) and the episode CSVs. Since the calendar re-simulation
-(`scripts/slurm/run_wofost_cybench.sh`), every episode runs from the location's WorldCereal SOS − 60
+(`scripts/slurm/run_wofost_chunks.sh`), every episode runs from the location's WorldCereal SOS − 60
 days until at least its EOS, with sowing at SOS ± 10 days, so soil moisture exists for the whole
 window. `process_wofost_dataset.py --align calendar` stores the daily series over
 `[SOS − 60, EOS]` in CY-Bench units; `nanotabicl/cybench_features.py` builds the features.

@@ -10,9 +10,9 @@ This repo trains [NanoTabICL](https://github.com/soda-inria/nanotabicl) (a minim
 WOFOST-simulated crop seasons: continued pretraining from the official TabICLv2 weights, and
 pretraining from scratch on WOFOST tables and/or the TabICLv2 prior. That code is self-contained in
 [`nanotabicl/`](nanotabicl/README.md). The rest is the WOFOST data pipeline (soil, weather,
-simulation, dataset checks, below), result plots in `analysis/`, and a bare
-[lightning-hydra-template](https://github.com/ashleve/lightning-hydra-template) skeleton
-(`src/train.py`, `src/eval.py`, `src/utils/`, `configs/`) with no model or datamodule in it.
+simulation, dataset checks, below), Hydra configs for the training (`configs/`, one file per
+experiment in `configs/experiment/`), and the experiments with their results and plots
+(`experiments/`, `results/`, `analysis/`; the index is `docs/experiments.md`).
 
 ## Environment Setup (uv)
 
@@ -30,7 +30,7 @@ uv sync --all-extras       # everything
 
 ### Running code
 ```bash
-uv run python -m nanotabicl.train --init official --data crop --table data/processed/wofost_wheat_daily.parquet
+uv run python -m nanotabicl.train experiment=exp_2a_loguniform_points seed=0     # a Hydra experiment config (configs/experiment/)
 uv run python -m src.data_pipeline.soil.generate_soilgrids_soil_file -lon 6.656 -lat 52.966
 uv run python -m src.data_pipeline.weather.generate_weather_file -lon 6.656 -lat 52.966 --start-date 2000-01-01 --end-date 2023-12-31
 uv run python -m src.data_pipeline.wofost.run_wofost_simulation -lon 6.656 -lat 52.966 --crop wheat --year 2020

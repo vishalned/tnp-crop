@@ -641,11 +641,14 @@ block keep only its input and recompute the rest during backward (~10× less
 stored, ~30 % slower). Neither changes the update. The log prints the peak
 GPU memory.
 
-**Outputs** in `--out-dir`: `config.json`, `log.csv` (loss, lr, val RMSE / R²
+**Outputs** in `out_dir` (the Hydra config's `paths.runs/<name>`): `config.json` (the resolved config), `log.csv` (loss, lr, val RMSE / R²
 vs baseline, peak memory, table size, time), `best.pt`, `last.pt`.
 
-`--init official` = continued pretraining / fine-tuning of the official
-weights; `--init scratch` = training from scratch. Same loop.
+`model=official` = continued pretraining / fine-tuning of the official
+weights; `model=scratch_small|scratch_base` = training from scratch. Same loop. A run is a Hydra
+config (`configs/`, `configs/experiment/<experiment>.yaml`): the table, the points sampler
+(`nanotabicl/samplers.py`), table transforms (`transforms.py`: observational noise, permuted
+yields) and the source of the batches (`sources.py`: crop, prior, mix) are config groups.
 
 ---
 
@@ -683,8 +686,9 @@ uv run python -m src.data_pipeline.wofost.process_wofost_dataset --manifest $DAT
 uv run python -m nanotabicl.checkpoint
 # zero-shot
 uv run python -m nanotabicl.evaluate --checkpoint official --table $DATA/processed/wofost_maize_daily.parquet --years 2017 2018
-# training + test evaluation (GPU job: scripts/slurm/run_gpu.sh, MODE=structured|random)
-sbatch scripts/slurm/run_gpu.sh
+# training + test evaluation (GPU job; an experiment of configs/experiment/): scripts/slurm/run_gpu.sh
+sbatch --export=ALL,EXPERIMENT=exp_2a_loguniform_points,SEED=0 scripts/slurm/run_gpu.sh
+# the whole chain (training -> CY-Bench -> summary) for seeds 0-2: bash scripts/slurm/submit_experiment.sh exp_2a_loguniform_points
 ```
 
 ---
