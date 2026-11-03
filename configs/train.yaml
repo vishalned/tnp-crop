@@ -1,0 +1,30 @@
+# Hydra config of `python -m nanotabicl.train`. A run is composed from the groups below; an `experiment` file (configs/experiment/) sets them all
+# for one experiment:
+#
+#   python -m nanotabicl.train experiment=exp_2a_loguniform_points seed=0
+#   python -m nanotabicl.train experiment=exp_4_obs_noise seed=1 recipe.steps=500        # any value can be overridden
+#   python -m nanotabicl.train data.table=<parquet> sampler=loguniform +transform@transforms.noise=obs_noise
+#
+# The resolved config of a run is saved as <out_dir>/config.json (and .hydra/config.yaml).
+defaults:
+  - paths: default
+  - model: official        # official | scratch_small | scratch_base | tiny (tests)
+  - data: crop             # the processed WOFOST table and how tables are built from it
+  - sampler: uniform       # points per table: uniform | loguniform
+  - source: crop           # which batches the steps see: crop | prior | prior_matched | mix | mix_matched
+  - recipe: finetune       # optimiser, schedule, batch
+  - _self_
+  - experiment: null       # last, so that an experiment file overrides everything above
+
+name: run                  # run folder under paths.runs
+seed: 0
+device: auto               # auto = cuda if available
+hf_cache_dir: null         # where to cache the official checkpoint
+transforms: {}             # table transforms, in order; add with +transform@transforms.<name>=<file> (obs_noise, permute_yields)
+out_dir: ${paths.runs}/${name}
+
+hydra:
+  run:
+    dir: ${out_dir}
+  job:
+    chdir: false

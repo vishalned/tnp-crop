@@ -1,0 +1,5 @@
+# @package _global_
+# exp_1 on the densified EU grid after the organic-matter fix (OM = SOC / 0.58): the base table of everything below (3 seeds).
+name: exp_1_eu_grid_dense_omfix/wofost_seed${seed}
+data:
+  table: ${paths.tables.omfix}

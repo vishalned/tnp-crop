@@ -24,7 +24,7 @@ from nanotabicl.train import evaluate_walk_forward
 def main():
     p = argparse.ArgumentParser(description="Walk-forward evaluation of NanoTabICLv2 on WOFOST tables.")
     p.add_argument("--checkpoint", required=True, help="our checkpoint (.pt), an official .ckpt, or 'official'")
-    p.add_argument("--table", required=True)
+    p.add_argument("--table", default=None, help="default: the table the checkpoint was trained on")
     p.add_argument("--years", type=int, nargs="+", default=[2019, 2020])
     p.add_argument("--target", default="yield_t_per_ha")
     p.add_argument("--horizon", default=None, help="default: the checkpoint's training horizon, else eos")
@@ -39,11 +39,14 @@ def main():
     trained = {}
     if os.path.exists(args.checkpoint):
         trained = torch.load(args.checkpoint, map_location="cpu", weights_only=False).get("args", {})
-    tables = CropTables(args.table, CropTableConfig(
-        target=args.target, horizon=args.horizon or trained.get("horizon", "eos"),
-        train_years=tuple(trained.get("train_years", (2005, 2016))),  # the normaliser is fitted on these
-        countries=trained.get("countries"),  # the training subset, if any
-        min_points=trained.get("min_points", args.min_points)))
+    table = args.table or checkpoint.trained_setting(trained, "table")
+    if not table:
+        raise SystemExit("--table is needed: the checkpoint has no training table recorded.")
+    tables = CropTables(table, CropTableConfig(
+        target=args.target, horizon=args.horizon or checkpoint.trained_setting(trained, "horizon", "eos"),
+        train_years=tuple(checkpoint.trained_setting(trained, "train_years", (2005, 2016))),  # the normaliser is fitted on these
+        countries=checkpoint.trained_setting(trained, "countries"),  # the training subset, if any
+        min_points=checkpoint.trained_setting(trained, "min_points", args.min_points)))
     model.to(args.device)
 
     metrics, preds = evaluate_walk_forward(model, tables, args.years, args.device, args.max_context_rows)

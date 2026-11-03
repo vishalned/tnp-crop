@@ -1,0 +1,3 @@
+# Observational noise on fPAR, ssm and rsm in the training tables (nanotabicl/obs_noise.py). Use: +transform@transforms.noise=obs_noise
+_target_: nanotabicl.transforms.ObservationNoise
+seed: ${seed}

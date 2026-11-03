@@ -1,0 +1,7 @@
+# @package _global_
+# Irrigation map: locations irrigated (PP simulation) or rainfed as the MIRCA-OS 2015 maize map says; log-uniform points (seed 0).
+defaults:
+  - override /sampler: loguniform
+name: exp_3_irrigation_map/wofost_seed${seed}
+data:
+  table: ${paths.tables.irrigation_map}

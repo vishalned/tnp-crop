@@ -1,0 +1,4 @@
+# @package sampler
+# Uniform number of points per table between the lower end (min_points, default data.min_points) and the cap.
+_target_: nanotabicl.samplers.UniformPoints
+min_points: null

@@ -1,0 +1,13 @@
+# @package data
+table: null                  # processed table (paths.tables.*); required for crop batches
+target: yield_t_per_ha
+horizon: eos                 # CY-Bench forecast horizon: eos | middle-of-season | quarter-of-season | early-season | eos-N
+train_years: [2005, 2016]    # sowing years of the training tables (also fit the feature normaliser)
+val_years: [2017, 2018]      # walk-forward validation during training
+episodes: structured         # structured: context = earlier years, queries = the target year | random: TabICL-style random row split
+countries: null              # train on these countries only (names as in the table)
+min_points: 10               # regions with fewer points are dropped (and the default lower end of points per table)
+max_points: null             # cap on points per table (default: all of a region's)
+max_rows: 4096               # cap on rows per table (memory)
+min_context_years: 5
+max_context_years: 11

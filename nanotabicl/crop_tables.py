@@ -44,6 +44,7 @@ import pandas as pd
 import torch
 
 from nanotabicl.cybench_features import MAX_COLUMN_NAN_RATE, apply_normalizer, cybench_features, fit_normalizer
+from nanotabicl.samplers import UniformPoints
 
 
 @dataclass
@@ -53,13 +54,8 @@ class CropTableConfig:
     target: str = "yield_t_per_ha"
     horizon: str = "eos"  # CY-Bench's end_of_sequence: eos | middle-of-season | quarter-of-season | early-season | eos-N
     episodes: str = "structured"  # "structured" | "random"
-    min_points: int = 10  # regions with fewer points are dropped; also the lower end of points per table unless min_table_points is set
+    min_points: int = 10  # regions with fewer points are dropped; also the lower end of points per table unless the sampler sets its own
     max_points: Optional[int] = None  # None = up to all of a region's points
-    points_sampling: str = "uniform"  # points per table: "uniform" over [lower, cap] or "loguniform" (many small tables, few large)
-    obs_noise: bool = False  # observational noise on fpar / ssm / rsm in the training tables (nanotabicl/obs_noise.py)
-    obs_noise_seed: int = 0
-    permute_yields: bool = False  # sanity test: shuffle the yields among the rows of each training table (features keep their rows)
-    min_table_points: Optional[int] = None  # lower end of points per table; None = min_points (the region filter is unchanged)
     max_rows: int = 4096  # cap on rows per table (memory)
     min_context_years: int = 5  # structured episodes
     max_context_years: int = 11
@@ -68,12 +64,15 @@ class CropTableConfig:
 
 
 class CropTables:
-    def __init__(self, path: str, config: CropTableConfig = CropTableConfig()):
+    """`sampler` (nanotabicl/samplers.py) draws the number of points per table; `transforms` (nanotabicl/transforms.py) change a sampled batch
+    (observational noise, permuted yields, ...). The defaults are uniform points and no transforms."""
+
+    def __init__(self, path: str, config: CropTableConfig = CropTableConfig(), sampler=None, transforms: Sequence = ()):
         if config.episodes not in ("structured", "random"):
             raise ValueError(f"episodes must be 'structured' or 'random', got {config.episodes!r}.")
-        if config.points_sampling not in ("uniform", "loguniform"):
-            raise ValueError(f"points_sampling must be 'uniform' or 'loguniform', got {config.points_sampling!r}.")
         self.config = config
+        self.sampler = sampler if sampler is not None else UniformPoints()
+        self.transforms = list(transforms)
         df = pd.read_parquet(path) if path.endswith(".parquet") else pd.read_csv(path)
         if "reached_maturity" in df:
             df = df[df["reached_maturity"].astype(bool)]
@@ -89,11 +88,6 @@ class CropTables:
         self.df = df
 
         self.features, self.feature_names = self._features(df)
-        self.noise = None
-        if config.obs_noise:
-            from nanotabicl.obs_noise import ObservationNoise
-
-            self.noise = ObservationNoise(df, self.feature_names, self.normalizer, horizon=config.horizon, seed=config.obs_noise_seed)
         self.y = df[config.target].to_numpy(np.float32)
         self.point = df["location_index"].to_numpy()
         self.year = df["sowing_year"].to_numpy()
@@ -111,6 +105,8 @@ class CropTables:
             raise ValueError(f"No region has >= {config.min_points} points ({ {c: len(p) for c, p in regions.items()} }).")
         self.years = sorted(df["sowing_year"].unique())
         self.train_pool = [y for y in self.years if config.train_years[0] <= y <= config.train_years[1]]
+        for transform in self.transforms:
+            transform.bind(self)
 
     def _features(self, df: pd.DataFrame) -> tuple:
         cfg = self.config
@@ -133,12 +129,9 @@ class CropTables:
         rows_per_point = (int(rng.integers(cfg.min_context_years, cfg.max_context_years + 1)) + 1
                           if cfg.episodes == "structured" else len(self.train_pool))
         hi = min(len(self.country_points[lead]), cfg.max_points or np.inf, cfg.max_rows // rows_per_point)
-        lo = cfg.min_points if cfg.min_table_points is None else cfg.min_table_points
+        lo = cfg.min_points if self.sampler.min_points is None else self.sampler.min_points
         hi = max(hi, lo)
-        if cfg.points_sampling == "loguniform":  # log-uniform over [lo, hi]: each factor of 2 is equally likely
-            n_points = min(max(int(np.exp(rng.uniform(np.log(lo), np.log(hi + 1)))), lo), hi)
-        else:
-            n_points = int(rng.integers(lo, hi + 1))
+        n_points = self.sampler(rng, lo, hi)
         eligible = [c for c in countries if len(self.country_points[c]) >= n_points]
         n_train = None
         if cfg.episodes == "random":
@@ -157,18 +150,11 @@ class CropTables:
                 n_train = table[1]
                 if len(tables) == batch_size:
                     idx = np.stack(tables)
-                    x = self.features[idx]  # a copy
-                    y = self.y[idx]
-                    if cfg.permute_yields:  # yields shuffled over all rows (context and query) of each table: no feature -> yield signal left
-                        y = np.stack([row[rng.permutation(len(row))] for row in y])
-                    batch = {"y": torch.from_numpy(y), "n_train": n_train}
-                    if self.noise is not None:  # sigma / bg once per table, the noise per value; the draws are returned for the log
-                        params = np.stack([self.noise.draw() for _ in range(len(idx))])
-                        for b in range(len(idx)):
-                            for col, values in self.noise.apply(idx[b], params[b]).items():
-                                x[b, :, col] = values
-                        batch["noise_params"] = torch.from_numpy(params)
-                    return {"x": torch.from_numpy(x), **batch}
+                    batch = {"x": torch.from_numpy(self.features[idx]),  # a copy (fancy indexing): transforms may write into it
+                             "y": torch.from_numpy(self.y[idx]), "n_train": n_train}
+                    for transform in self.transforms:
+                        batch = transform(batch, idx, rng)
+                    return batch
         raise RuntimeError(f"Couldn't build {batch_size} tables of {n_points} points; check min_points / the data.")
 
     def _structured(self, rng, country, n_points, n_context_years) -> Optional[tuple]:

@@ -1,0 +1,5 @@
+# @package _global_
+# exp_1 on the 2,000-location EU grid (3 seeds).
+name: exp_1_eu_grid/wofost_seed${seed}
+data:
+  table: ${paths.tables.eu_grid}

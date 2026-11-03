@@ -1,0 +1,8 @@
+# @package _global_
+# B: A, and in half of the steps a batch of SCM (prior) tables with shapes drawn from the same sampler (3 seeds).
+defaults:
+  - override /sampler: loguniform
+  - override /source: mix_matched
+name: exp_2b_loguniform_points_scm/mix_seed${seed}
+data:
+  table: ${paths.tables.omfix}

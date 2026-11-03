@@ -1,0 +1,8 @@
+# @package source
+# SCM control: prior tables with the crop batches' shapes (the same run as the crop one, step by step).
+prior_fraction: 1.0     # share of steps with prior tables (0 = crop only, 1 = prior only)
+prior_shapes: matched       # random | matched (the crop sampler's shapes)
+shape_seed_offset: 0
+prior_max_rows: 1024
+prior_max_features: 100
+num_workers: 14          # DataLoader workers (the prior is CPU-bound)

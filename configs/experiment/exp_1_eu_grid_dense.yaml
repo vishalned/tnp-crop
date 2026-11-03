@@ -1,0 +1,5 @@
+# @package _global_
+# exp_1 on the densified EU grid (12,382 locations, ~700 usable per country; organic-matter bug in the soil; 3 seeds).
+name: exp_1_eu_grid_dense/wofost_seed${seed}
+data:
+  table: ${paths.tables.dense_old_soil}

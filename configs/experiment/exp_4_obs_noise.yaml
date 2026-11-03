@@ -1,0 +1,8 @@
+# @package _global_
+# Observational noise on fPAR, ssm and rsm in the training tables; log-uniform points (seed 0).
+defaults:
+  - /transform@transforms.noise: obs_noise
+  - override /sampler: loguniform
+name: exp_4_obs_noise/wofost_seed${seed}
+data:
+  table: ${paths.tables.omfix}

@@ -56,7 +56,7 @@ then `sos_sin/cos, eos_sin/cos, loc_x/y/z, awc, bulk_density`; without
 with the benchmark's normaliser fitted on the train years, columns with
 > 5% NaN dropped, NaN set to 0. Maize, `eos`: 153 features. The table must
 be built with `process_wofost_dataset.py --align calendar` (the default) from
-a calendar run (`scripts/slurm/run_wofost_cybench.sh`).
+a calendar run (`scripts/slurm/run_wofost_chunks.sh`).
 `tests/test_cybench_features.py` checks the features against the
 benchmark's own code (needs `uv pip install -e ../AgML-CY-Bench-Modeling --no-deps`).
 
@@ -131,7 +131,7 @@ uv run python -m nanotabicl.prior_tables --num-tables 8 --rows 200 --features 5 
 
 `python nanotabicl/prior.py` runs the upstream demo (a grid of 2-feature
 classification datasets; needs a display). Training on the prior:
-`python -m nanotabicl.train --data prior` (or `--data mix`). Generation is
+`python -m nanotabicl.train source=prior` (or `source=mix`). Generation is
 CPU-bound (~0.3 s per small table, mostly the ExtraTrees filter), so use
 `--num-workers`.
 
@@ -144,29 +144,29 @@ uv sync --extra train --extra nanotabicl
 #    On a cluster, run this on a login node before submitting jobs.
 uv run python -m nanotabicl.checkpoint          # downloads + converts tabicl-regressor-v2-20260212.ckpt, one forward pass
 
-# 2a. continue pretraining the official weights on WOFOST tables (--crop-episodes structured | random)
-uv run python -m nanotabicl.train --init official --data crop --crop-episodes structured \
-    --table data/processed/wofost_wheat_daily.parquet --lr 3e-5 --steps 5000 \
-    --micro-batch-size 1 --checkpoint-activations --out-dir logs/nanotabicl/continue_wheat
+# 2a. continue pretraining the official weights on WOFOST tables. The run is configured with Hydra (configs/): an experiment file sets the table,
+#     sampler, transforms and recipe; any value can be overridden. Every past experiment has a file in configs/experiment/.
+uv run python -m nanotabicl.train experiment=exp_2a_loguniform_points seed=0
+uv run python -m nanotabicl.train data.table=data/processed/wofost_wheat_daily.parquet recipe.steps=5000 recipe.lr=3e-5 out_dir=logs/nanotabicl/continue_wheat
 
-# 2b. from scratch on WOFOST tables, the TabICLv2 prior, or both
-uv run python -m nanotabicl.train --init scratch --size small --data mix --prior-fraction 0.5 \
-    --table data/processed/wofost_wheat_daily.parquet --lr 1e-3 --steps 50000 --num-workers 8 \
-    --micro-batch-size 1 --checkpoint-activations --out-dir logs/nanotabicl/scratch_mix
+# 2b. from scratch on WOFOST tables, the TabICLv2 prior, or both (recipe=scratch is an untested starting point; source = crop | prior | mix | ...)
+uv run python -m nanotabicl.train model=scratch_small recipe=scratch source=mix data.table=data/processed/wofost_wheat_daily.parquet \
+    source.num_workers=8 out_dir=logs/nanotabicl/scratch_mix
 
-# 2c. control for 2a: the same run on SCM prior tables with the crop batches' shapes (step k gets
-#     prior tables with the rows, features and context rows of 2a's batch k; columns standardised
-#     per table). --stop-at ends early with the --steps schedule; --save-steps keeps step<N>.pt.
-uv run python -m nanotabicl.train --init official --data prior-matched --crop-episodes structured \
-    --table data/processed/wofost_maize_daily.parquet --lr 3e-5 --steps 5000 --stop-at 1000 \
-    --save-steps 500 1000 --num-workers 14 --micro-batch-size 2 --checkpoint-activations --out-dir logs/nanotabicl/scm_matched
+# 2c. control for 2a: the same run on SCM prior tables with the crop batches' shapes (step k gets prior tables with the rows, features and
+#     context rows of 2a's batch k; columns standardised per table). recipe.stop_at ends early with the recipe.steps schedule.
+uv run python -m nanotabicl.train experiment=exp_1_eu_grid_scm seed=0 recipe.stop_at=1000 recipe.save_steps=[500,1000]
+
+# table transforms and the points sampler are config groups, not flags:
+uv run python -m nanotabicl.train experiment=exp_2a_loguniform_points +transform@transforms.noise=obs_noise     # + observational noise
+uv run python -m nanotabicl.train -m experiment=lr_test recipe.lr=3e-6,1e-5,3e-5                                 # a sweep (Hydra multirun)
 
 # 3. walk-forward test evaluation (2019-2020); --checkpoint official = zero-shot baseline
-uv run python -m nanotabicl.evaluate --checkpoint logs/nanotabicl/continue_wheat/best.pt --table data/processed/wofost_wheat_daily.parquet
+uv run python -m nanotabicl.evaluate --checkpoint logs/nanotabicl/continue_wheat/best.pt   # the table defaults to the one the checkpoint was trained on
 uv run python -m nanotabicl.evaluate --checkpoint official --table data/processed/wofost_wheat_daily.parquet
 ```
 
-`--init` also takes a path: a manually downloaded official `.ckpt`
+`model.init` also takes a path: a manually downloaded official `.ckpt`
 (`huggingface-cli download jingang/TabICL tabicl-regressor-v2-20260212.ckpt`)
 or one of our `.pt` checkpoints (to resume). `--size base` = the official
 dimensions (~29M parameters) for from-scratch runs; `small` = the

@@ -1,0 +1,8 @@
+# @package _global_
+# Sanity test: the yields shuffled within every training table (the WOFOST gain should vanish); log-uniform points (seed 0).
+defaults:
+  - /transform@transforms.permute: permute_yields
+  - override /sampler: loguniform
+name: sanity_permuted_yields/wofost_seed${seed}
+data:
+  table: ${paths.tables.omfix}

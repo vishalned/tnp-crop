@@ -1,0 +1,16 @@
+# @package recipe
+# A starting point for pretraining from scratch (model=scratch_small|scratch_base); NOT tested yet: from scratch the learning rate is ~1e-3, and
+# the schedule needs far more steps and tables than the continued runs. Use with source=prior|mix for prior tables.
+steps: 50000
+stop_at: null
+save_steps: [10000, 20000, 30000, 40000]
+batch_size: 8
+micro_batch_size: 1
+checkpoint_activations: true
+lr: 1.0e-3
+warmup: 200
+warmup_fraction: 0.05
+weight_decay: 0.0
+grad_clip: 1.0
+eval_every: 2000
+log_every: 50

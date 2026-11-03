@@ -1,0 +1,8 @@
+# @package source
+# Half crop, half prior batches (prior tables with random shapes).
+prior_fraction: 0.5     # share of steps with prior tables (0 = crop only, 1 = prior only)
+prior_shapes: random       # random | matched (the crop sampler's shapes)
+shape_seed_offset: 0
+prior_max_rows: 1024
+prior_max_features: 100
+num_workers: 4          # DataLoader workers (the prior is CPU-bound)

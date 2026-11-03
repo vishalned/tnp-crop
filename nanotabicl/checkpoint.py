@@ -178,7 +178,19 @@ SIZES = {
                   col_nhead=4, row_nhead=4, icl_nhead=4),
     # official TabICLv2 dimensions
     "base": dict(max_classes=0, out_dim=999),
+    # a toy model for tests and smoke runs
+    "tiny": dict(max_classes=0, out_dim=19, embed_dim=16, col_num_blocks=1, row_num_blocks=1, icl_num_blocks=1,
+                 col_nhead=2, row_nhead=2, icl_nhead=2, n_cls_rows=8),
 }
+
+
+def trained_setting(args: dict, key: str, default=None):
+    """A data setting of the run a checkpoint came from: `args` is the training config saved in the checkpoint, nested (data.<key>, Hydra runs)
+    or flat (<key>, runs from before the config refactor)."""
+    data = args.get("data")
+    if isinstance(data, dict) and key in data:
+        return data[key]
+    return args.get(key, default)
 
 
 if __name__ == "__main__":

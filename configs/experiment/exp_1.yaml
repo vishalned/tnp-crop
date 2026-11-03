@@ -1,0 +1,5 @@
+# @package _global_
+# exp_1: the original 3-country run (FR, BE, DK): WOFOST pretraining of the official weights (3 seeds: seed=0,1,2).
+name: exp_1/wofost_seed${seed}
+data:
+  table: ${paths.tables.fr_be_dk}

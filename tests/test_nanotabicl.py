@@ -10,6 +10,9 @@ import torch
 from nanotabicl import checkpoint
 from nanotabicl.crop_tables import CropTableConfig, CropTables
 from nanotabicl.model import NanoTabICLv2
+from nanotabicl.samplers import LogUniformPoints
+from nanotabicl.transforms import ObservationNoise as ObservationNoiseTransform
+from nanotabicl.transforms import PermuteYields
 from nanotabicl.train import checkpoint_activations, evaluate_walk_forward, forward_quantiles, pinball_loss, train_step
 
 
@@ -155,8 +158,8 @@ def test_structured_training_tables(tables):
 
 
 def test_loguniform_points_per_table(table_path, tables):
-    """points_sampling="loguniform" + min_table_points=1: tables from a single point up to the cap, mostly small ones."""
-    small = CropTables(table_path, CropTableConfig(points_sampling="loguniform", min_table_points=1))
+    """LogUniformPoints(min_points=1): tables from a single point up to the cap, mostly small ones."""
+    small = CropTables(table_path, CropTableConfig(), sampler=LogUniformPoints(min_points=1))
     assert set(small.country_points) == {"France", "Germany"}  # the region filter (min_points=10) is unchanged
     rng = np.random.default_rng(0)
     counts = []
@@ -173,20 +176,18 @@ def test_loguniform_points_per_table(table_path, tables):
     # log-uniform on [1, 12]: P(n <= 3) = log(4) / log(13) = 0.54 (uniform on [1, 12] would give 0.25)
     assert 0.45 < (counts <= 3).mean() < 0.65
     # (the default, uniform from min_points = 10, is covered by test_structured_training_tables)
-    with pytest.raises(ValueError, match="points_sampling"):
-        CropTables(table_path, CropTableConfig(points_sampling="normal"))
 
 
 def test_observation_noise_changes_only_the_noisy_columns_and_is_exact_at_zero(table_path):
     from nanotabicl.obs_noise import NAMES, ObservationNoise
 
     clean = CropTables(table_path)
-    noisy = CropTables(table_path, CropTableConfig(obs_noise=True, obs_noise_seed=3))
+    noisy = CropTables(table_path, CropTableConfig(), transforms=[ObservationNoiseTransform(seed=3)])
     assert np.array_equal(clean.features, noisy.features)  # the stored (validation / test) features stay clean
     names = clean.feature_names
     noise_cols = sorted(j for n in names for j in [names.index(n)] if any(n.startswith(v + "_") for v in NAMES.values()))
     other = [j for j in range(len(names)) if j not in noise_cols]
-    obs = noisy.noise
+    obs = noisy.transforms[0].noise
     assert isinstance(obs, ObservationNoise) and {c[4] for c in obs.columns} == set(noise_cols)
     rows = np.arange(0, 60)
     # sigma = 0 and bg = 0: the recomputed features equal the clean ones (fpar, cum_fpar, ssm, rsm per block)
@@ -208,8 +209,8 @@ def test_observation_noise_changes_only_the_noisy_columns_and_is_exact_at_zero(t
     p = b["noise_params"].numpy()
     assert p.shape == (3, 4) and (p[:, [0, 2, 3]] >= 0).all() and (p[:, [0, 2, 3]] <= 0.3).all() and ((p[:, 1] >= 0.05) & (p[:, 1] <= 0.2)).all()
     # seeded: the same seed draws the same tables and noise
-    a1 = CropTables(table_path, CropTableConfig(obs_noise=True, obs_noise_seed=3)).sample_batch(np.random.default_rng(5), 2)
-    a2 = CropTables(table_path, CropTableConfig(obs_noise=True, obs_noise_seed=3)).sample_batch(np.random.default_rng(5), 2)
+    a1 = CropTables(table_path, CropTableConfig(), transforms=[ObservationNoiseTransform(seed=3)]).sample_batch(np.random.default_rng(5), 2)
+    a2 = CropTables(table_path, CropTableConfig(), transforms=[ObservationNoiseTransform(seed=3)]).sample_batch(np.random.default_rng(5), 2)
     assert np.array_equal(a1["x"].numpy(), a2["x"].numpy()) and np.array_equal(a1["noise_params"].numpy(), a2["noise_params"].numpy())
     # fpar stays within 0-100 % after the noise
     series = obs.noisy_series(rows, np.array([0.3, 0.2, 0.0, 0.0]))
@@ -219,7 +220,7 @@ def test_observation_noise_changes_only_the_noisy_columns_and_is_exact_at_zero(t
 def test_matched_prior_shapes_for_mixing_follow_the_crop_sampler(table_path):
     from nanotabicl.prior_tables import crop_batch_shapes
 
-    small = CropTables(table_path, CropTableConfig(points_sampling="loguniform", min_table_points=1))
+    small = CropTables(table_path, CropTableConfig(), sampler=LogUniformPoints(min_points=1))
     crop_shapes = crop_batch_shapes(small, 2, 40, 0)
     prior_shapes = crop_batch_shapes(small, 2, 40, 10_000)  # train.py --data mix-matched: fresh draws, another seed
     assert crop_shapes != prior_shapes
@@ -284,7 +285,7 @@ def test_matched_prior_tables_have_the_crop_batches_shapes(tables):
     from torch.utils.data import DataLoader
 
     from nanotabicl.prior_tables import MatchedPriorTables, crop_batch_shapes
-    from nanotabicl.train import CropStream
+    from nanotabicl.sources import CropStream
 
     shapes = crop_batch_shapes(tables, batch_size=2, n_batches=3, seed=5)
     crop = iter(CropStream(tables, batch_size=2, seed=5))  # what `--data crop` trains on, step by step
@@ -411,7 +412,7 @@ def test_regressor_ensemble_matches_tabicl_regressor():
 
 def test_permute_yields_keeps_each_tables_yield_values_but_breaks_the_row_link(table_path):
     base = CropTables(table_path, CropTableConfig())
-    perm = CropTables(table_path, CropTableConfig(permute_yields=True))
+    perm = CropTables(table_path, CropTableConfig(), transforms=[PermuteYields()])
     a = base.sample_batch(np.random.default_rng(3), batch_size=4)
     b = perm.sample_batch(np.random.default_rng(3), batch_size=4)
     assert torch.equal(a["x"], b["x"]) and a["n_train"] == b["n_train"]  # same tables and features

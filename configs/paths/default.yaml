@@ -1,0 +1,10 @@
+# Where the data and the runs are (project space; the repo's home is nearly full). Override the root with the environment variable TNP_ROOT.
+root: ${oc.env:TNP_ROOT,/projects/prjs1788/tnp-crop}
+runs: ${paths.root}/nanotabicl                 # training runs: <runs>/<experiment>/<run>/
+tables:                                          # processed WOFOST tables (wofost_maize_daily.parquet)
+  fr_be_dk: ${paths.root}/processed/wofost_maize_daily.parquet                              # the original 3-country run (exp_1)
+  eu_grid: ${paths.root}/wofost_eu_grid/processed/wofost_maize_daily.parquet                # 2,000 EU grid locations
+  dense_old_soil: ${paths.root}/wofost_eu_grid_dense/processed/wofost_maize_daily.parquet   # densified EU grid, organic-matter bug
+  omfix: ${paths.root}/wofost_eu_grid_dense_omfix/processed/wofost_maize_daily.parquet      # densified EU grid, OM = SOC / 0.58 (the base table)
+  irrigation_map: ${paths.root}/wofost_eu_grid_dense_irrmap/processed/wofost_maize_daily.parquet  # omfix, irrigated where the MIRCA-OS map says
+  tsum: ${paths.root}/wofost_eu_grid_dense_tsum/processed/wofost_maize_daily.parquet        # omfix with TSUM1 / TSUM2 x U(0.8, 1.2) per location

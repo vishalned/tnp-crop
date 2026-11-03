@@ -1,0 +1,7 @@
+# @package _global_
+# SCM control of the EU grid run (3 seeds).
+defaults:
+  - override /source: prior_matched
+name: exp_1_eu_grid/scm_seed${seed}
+data:
+  table: ${paths.tables.eu_grid}

@@ -1,0 +1,4 @@
+# @package model
+# init: official | scratch | a checkpoint path (ours or official); size is used for scratch (small | base | tiny)
+init: official
+size: small

@@ -1,0 +1,16 @@
+# @package recipe
+# The recipe of every continued-pretraining experiment (from the LR test): AdamW, LR 1e-5, 2000 steps, 10 % warmup, cosine to 0, weight decay 0.01,
+# gradient clip 1; micro-batch 1 and activation checkpointing so that 4096-row tables fit a 40 GB A100 (micro-batch 2 breaks CUDA's grid limit).
+steps: 2000                  # length of the learning-rate schedule (and of the run)
+stop_at: null                # stop after this many steps, keeping the schedule of `steps`
+save_steps: []               # also save step<N>.pt at these steps
+batch_size: 8                # tables per optimiser step
+micro_batch_size: 1          # tables per forward/backward pass (gradients accumulate over the batch)
+checkpoint_activations: true # recompute block activations in the backward pass (less memory, ~30 % slower)
+lr: 1.0e-5
+warmup: 200                  # warmup steps ...
+warmup_fraction: 0.1         # ... or this fraction of `steps` when set
+weight_decay: 0.01
+grad_clip: 1.0
+eval_every: 500              # walk-forward validation every this many steps (keeps best.pt)
+log_every: 50

@@ -1,0 +1,7 @@
+# @package _global_
+# A: points per table log-uniform from 1 up to the cap (was uniform from 10), on the OM-fix table (3 seeds).
+defaults:
+  - override /sampler: loguniform
+name: exp_2a_loguniform_points/wofost_seed${seed}
+data:
+  table: ${paths.tables.omfix}

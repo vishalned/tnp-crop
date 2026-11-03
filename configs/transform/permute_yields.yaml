@@ -1,0 +1,2 @@
+# Sanity test: yields shuffled within each training table. Use: +transform@transforms.permute=permute_yields
+_target_: nanotabicl.transforms.PermuteYields

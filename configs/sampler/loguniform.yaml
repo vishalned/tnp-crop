@@ -1,0 +1,5 @@
+# @package sampler
+# Log-uniform number of points per table: many small tables, few large ones (every factor of 2 equally likely), from 1 up to the cap.
+# The region filter (data.min_points) is unchanged.
+_target_: nanotabicl.samplers.LogUniformPoints
+min_points: 1

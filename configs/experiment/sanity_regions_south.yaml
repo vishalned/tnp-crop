@@ -1,0 +1,6 @@
+# @package _global_
+# Sanity test: pretraining on the south countries of the densified table only (old soil), benchmarked on all 18 (seed 0).
+name: sanity_regions_south/wofost_seed${seed}
+data:
+  table: ${paths.tables.dense_old_soil}
+  countries: [Spain, Portugal, Italy, Greece]

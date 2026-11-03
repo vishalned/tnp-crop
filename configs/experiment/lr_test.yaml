@@ -1,0 +1,8 @@
+# @package _global_
+# Learning-rate test on the original 3-country table, 3000 steps; a sweep:  python -m nanotabicl.train -m experiment=lr_test recipe.lr=3e-6,1e-5,3e-5
+name: lr_test/wofost_lr${recipe.lr}
+data:
+  table: ${paths.tables.fr_be_dk}
+recipe:
+  steps: 3000
+  save_steps: [1000, 2000]
