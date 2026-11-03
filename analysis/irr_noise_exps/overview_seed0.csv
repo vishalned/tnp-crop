@@ -1,0 +1,6 @@
+run,nrmse_mean,nrmse_weighted,anomaly_r_mean,anomaly_r_weighted
+TabICL default (single pass),0.2142,0.2043,0.2962,0.2318
+"WOFOST pretraining, densified OM-fix table",0.2106,0.1968,0.3303,0.3059
++ log-uniform points per table,0.2114,0.1986,0.3664,0.316
++ irrigation map (MIRCA-OS 2015),0.2082,0.1963,0.385,0.3304
+"+ observational noise (fPAR, ssm, rsm)",0.2069,0.1955,0.3392,0.296

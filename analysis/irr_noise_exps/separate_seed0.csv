@@ -1,0 +1,15 @@
+figure,run,nrmse_mean,anomaly_r_mean
+irrigation_map_seed0,TabICL default,0.2142,0.2962
+irrigation_map_seed0,SCM control,0.2151,0.2797
+irrigation_map_seed0,"WOFOST, EU grid",0.2107,0.3171
+irrigation_map_seed0,"WOFOST, densified (old soil)",0.2115,0.3129
+irrigation_map_seed0,"WOFOST, densified (OM fix, new soil)",0.2106,0.3303
+irrigation_map_seed0,+ log-uniform points per table,0.2114,0.3664
+irrigation_map_seed0,+ irrigation map (MIRCA-OS 2015),0.2082,0.385
+observational_noise_seed0,TabICL default,0.2142,0.2962
+observational_noise_seed0,SCM control,0.2151,0.2797
+observational_noise_seed0,"WOFOST, EU grid",0.2107,0.3171
+observational_noise_seed0,"WOFOST, densified (old soil)",0.2115,0.3129
+observational_noise_seed0,"WOFOST, densified (OM fix, new soil)",0.2106,0.3303
+observational_noise_seed0,+ log-uniform points per table,0.2114,0.3664
+observational_noise_seed0,"+ observational noise (fPAR, ssm, rsm)",0.2069,0.3392
