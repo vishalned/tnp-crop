@@ -154,6 +154,6 @@ def merge_weather_and_derive_features(
         1.0 - math.exp(-k_diftb(d) * l) if pd.notna(d) and pd.notna(l) else 0.0 for d, l in zip(dvs, lai)
     ]
 
-    merged["ssm"] = merged["SM_layer0"]
+    merged["ssm"] = merged["SM_layer0"] if "SM_layer0" in merged else float("nan")  # potential production has no soil layers
 
     return merged

@@ -111,7 +111,7 @@ def _empty_row(job: dict, year: int, jitter_index: int, sowing_offset_days: int)
     }
 
 
-def _run_location_group(jobs: list, sowing_jitter_days: int, save_dir: str, num_locations: int) -> list:
+def _run_location_group(jobs: list, sowing_jitter_days: int, save_dir: str, num_locations: int, model_name: Optional[str] = None) -> list:
     """Run every episode for a group of location jobs in the same ERA5-Land
     pixel (or with the same coordinates, e.g. one point listed once for wheat
     and once for maize), one after the other, and return their manifest rows.
@@ -145,6 +145,7 @@ def _run_location_group(jobs: list, sowing_jitter_days: int, save_dir: str, num_
                     eos_doy=job["eos_doy"],
                     output_dir=save_dir,
                     write_summary=False,  # its fields are in the manifest
+                    model_name=model_name,
                 )
                 summary = result["summary"]
                 row.update(
@@ -188,6 +189,7 @@ def generate_wofost_dataset(
     num_workers: Optional[int] = None,
     max_locations: Optional[int] = None,
     first_location: int = 0,
+    model_name: Optional[str] = None,
 ) -> dict:
     """Run WOFOST episodes for a batch of locations -- every year in
     `[start_year, end_year]` (sowing year), `num_jitters` sowing dates per
@@ -273,7 +275,7 @@ def generate_wofost_dataset(
     group_list = list(groups.values())
     if num_workers <= 1:
         for jobs in group_list:
-            record(_run_location_group(jobs, sowing_jitter_days, save_dir, len(locations)))
+            record(_run_location_group(jobs, sowing_jitter_days, save_dir, len(locations), model_name))
     else:
         print(f"Running {len(group_list)} locations on {num_workers} worker processes.", flush=True)
         # spawn (not fork): each worker starts clean and initialises its own
@@ -281,7 +283,7 @@ def generate_wofost_dataset(
         context = multiprocessing.get_context("spawn")
         with ProcessPoolExecutor(max_workers=num_workers, mp_context=context) as executor:
             futures = {
-                executor.submit(_run_location_group, jobs, sowing_jitter_days, save_dir, len(locations)): jobs
+                executor.submit(_run_location_group, jobs, sowing_jitter_days, save_dir, len(locations), model_name): jobs
                 for jobs in group_list
             }
             for future in as_completed(futures):
@@ -340,6 +342,7 @@ def main():
     parser.add_argument("--workers", dest="num_workers", type=int, default=None, help="Worker processes running locations in parallel (default: min(8, cpu count); 1 = sequential).")
     parser.add_argument("--max-locations", dest="max_locations", type=int, default=None, help="Only run the first N locations of the CSV (default: all).")
     parser.add_argument("--first-location", dest="first_location", type=int, default=0, help="Skip the CSV's rows before this one (default 0); offsets are drawn for all rows.")
+    parser.add_argument("--model-name", dest="model_name", type=str, default=None, help="PCSE model (default: the water-limited Wofost81_WLP_MLWB); Wofost81_PP = potential production, i.e. fully irrigated, no soil needed.")
     parser.add_argument("-o", "--output-dir", dest="output_dir", type=str, default=DEFAULT_WOFOST_SAVE_DIR)
 
     args = parser.parse_args()
@@ -358,6 +361,7 @@ def main():
         num_workers=args.num_workers,
         max_locations=args.max_locations,
         first_location=args.first_location,
+        model_name=args.model_name,
     )
 
 

@@ -103,6 +103,8 @@ def soil_moisture_columns(daily: pd.DataFrame, depths_cm=(10, 100)) -> dict:
     `{"SSM": 0-10 cm, "RSM": 0-100 cm}` (CY-Bench's GLDAS `ssm`/`rsm`)."""
     zmins, zmaxs = default_zs()
     out = {}
+    if "WC_layer0" not in daily:  # potential production (fully irrigated): no soil water balance, no soil moisture
+        return {"SSM": pd.Series(float("nan"), index=daily.index), "RSM": pd.Series(float("nan"), index=daily.index)}
     for name, depth in zip(("SSM", "RSM"), depths_cm):
         total = 0.0
         for i, (z0, z1) in enumerate(zip(zmins, zmaxs)):
