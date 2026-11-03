@@ -56,6 +56,8 @@ class CropTableConfig:
     min_points: int = 10  # regions with fewer points are dropped; also the lower end of points per table unless min_table_points is set
     max_points: Optional[int] = None  # None = up to all of a region's points
     points_sampling: str = "uniform"  # points per table: "uniform" over [lower, cap] or "loguniform" (many small tables, few large)
+    obs_noise: bool = False  # observational noise on fpar / ssm / rsm in the training tables (nanotabicl/obs_noise.py)
+    obs_noise_seed: int = 0
     min_table_points: Optional[int] = None  # lower end of points per table; None = min_points (the region filter is unchanged)
     max_rows: int = 4096  # cap on rows per table (memory)
     min_context_years: int = 5  # structured episodes
@@ -86,6 +88,11 @@ class CropTables:
         self.df = df
 
         self.features, self.feature_names = self._features(df)
+        self.noise = None
+        if config.obs_noise:
+            from nanotabicl.obs_noise import ObservationNoise
+
+            self.noise = ObservationNoise(df, self.feature_names, self.normalizer, horizon=config.horizon, seed=config.obs_noise_seed)
         self.y = df[config.target].to_numpy(np.float32)
         self.point = df["location_index"].to_numpy()
         self.year = df["sowing_year"].to_numpy()
@@ -149,7 +156,15 @@ class CropTables:
                 n_train = table[1]
                 if len(tables) == batch_size:
                     idx = np.stack(tables)
-                    return {"x": torch.from_numpy(self.features[idx]), "y": torch.from_numpy(self.y[idx]), "n_train": n_train}
+                    x = self.features[idx]  # a copy
+                    batch = {"y": torch.from_numpy(self.y[idx]), "n_train": n_train}
+                    if self.noise is not None:  # sigma / bg once per table, the noise per value; the draws are returned for the log
+                        params = np.stack([self.noise.draw() for _ in range(len(idx))])
+                        for b in range(len(idx)):
+                            for col, values in self.noise.apply(idx[b], params[b]).items():
+                                x[b, :, col] = values
+                        batch["noise_params"] = torch.from_numpy(params)
+                    return {"x": torch.from_numpy(x), **batch}
         raise RuntimeError(f"Couldn't build {batch_size} tables of {n_points} points; check min_points / the data.")
 
     def _structured(self, rng, country, n_points, n_context_years) -> Optional[tuple]:
