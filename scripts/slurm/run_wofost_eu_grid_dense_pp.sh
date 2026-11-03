@@ -11,7 +11,7 @@
 #
 # Nothing is downloaded: weather and elevation come from the caches ($TNP_NO_GEE_WEATHER=1: a cache miss is a failed
 # season, not a download); PP needs no soil. The processed table has no ssm / rsm (no water balance): they are taken
-# from the rainfed run when the irrigation-map table is built (analysis/irrigation_map/build_irrigation_table.py).
+# from the rainfed run when the irrigation-map table is built (src/data_pipeline/irrigation/build_irrigation_table.py).
 # Settings as the rainfed run: 2005-2020, 3 sowing jitters (+-10 days), seed 42.
 
 #SBATCH --job-name=wofost-pp

@@ -27,13 +27,13 @@ in the simulation and the simulated yields changed.
    `/projects/prjs1788/tnp-crop/wofost_eu_grid_dense_omfix/processed/wofost_maize_daily.parquet`.
 4. **Training** `exp_1_eu_grid_dense_omfix`: WOFOST only, 3 seeds, same recipe as the old dense run (continued pretraining of the official
    TabICLv2 weights, LR 1e-5, 2000 steps, last.pt), then the CY-Bench evaluation on the 18 European countries (walk-forward, single pass).
-5. **Comparison** `analysis/soc_fix/` (`compare_distributions.py`, `compare_results.py`).
+5. **Comparison** `experiments/om_fix/` (`compare_distributions.py`, `compare_results.py`).
 
 Files written to the project space by this rerun: `wofost_eu_grid_dense_omfix/` 38 files / 48 GB, `nanotabicl/exp_1_eu_grid_dense_omfix/`
 about 20 files / 0.7 GB, `cybench_output/exp_1_eu_grid_dense_omfix/` about 1,600 files / 7 MB, raw soil table 2 files.
 
 ## 3. What changed in the data
-Seasons are matched one-to-one with the old table (same location, sowing year, jitter). Figures: `analysis/soc_fix/figures/`
+Seasons are matched one-to-one with the old table (same location, sowing year, jitter). Figures: `experiments/om_fix/figures/`
 (`soil_static.png`, `yield.png`, `features.png`).
 
 - `awc` (available water capacity of the top layer) fell by 16 % on average (location-weighted), bulk density is unchanged, and the simulated
@@ -69,7 +69,7 @@ Seasons are matched one-to-one with the old table (same location, sowing year, j
 | Slovenia | 350 | 19.79 | 16.45 | -16.89 | 9.36 | 7.22 | -22.86 |
 | Spain | 696 | 19.94 | 17.26 | -13.41 | 1.36 | 0.94 | -30.69 |
 
-(countries with at least 1,000 seasons; `analysis/soc_fix/per_country.csv` has all.)
+(countries with at least 1,000 seasons; `experiments/om_fix/per_country.csv` has all.)
 
 ## 4. Training
 Validation (WOFOST years 2017-2018) and test (2019-2020) are on each run's own table, so the numbers are not comparable between the two runs
@@ -116,7 +116,7 @@ region-years (0.2003 -> 0.1967); anomaly r rises from 0.309 to 0.327 (weighted 0
 mainly HU (+0.049), BG and HR. Against the other runs: the OM-fix densified run is the best of the scaled-up tables (NRMSE 0.2103 / weighted 0.1967, vs 0.2116 / 0.2003 for the
 old-soil densified run and 0.2116 / 0.2016 for the EU grid) and slightly better than default TabICL (0.2142 / 0.2043), but the original exp_1 points
 (0.2008 / 0.1946) are still the best, so the fix does not change the earlier conclusion that more WOFOST locations did not help.
-Figure: `analysis/soc_fix/figures/comparison.png`.
+Figure: `experiments/om_fix/figures/comparison.png`.
 
 ## 6. Caveats
 - **Seed 1 needed a rerun.** It crashed twice at step ~300 with `CUDA error: invalid argument`: it drew a 4096-row table and with

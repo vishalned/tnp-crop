@@ -1,0 +1,12 @@
+- file: overview_seed0.png
+  title: "CY-Bench walk-forward, 18 European maize countries: default TabICL and WOFOST pretraining variants (pretraining seed 0)"
+  seed: 0
+  weighted: true
+  figsize: [17, 8.2]
+  title_size: 11
+  runs:
+    - {use: tabicl_default, label: "TabICL default (single pass)"}
+    - {use: wofost_omfix, label: "WOFOST pretraining, densified OM-fix table"}
+    - loguniform
+    - irrigation_map
+    - obs_noise

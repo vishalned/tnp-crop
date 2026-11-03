@@ -135,7 +135,7 @@ countries are also equally likely as the lead, so Portugal (11 points) leads as 
 | WOFOST, EU grid table | 0.2116 | 0.2016 | 0.309 |
 
 On the EU grid table, WOFOST beats default TabICL in 9 of 18 countries (clearly better in 6, clearly worse
-in 6); in exp_1 it was 12 of 18 (12 / 5). Figures: `analysis/scaling/figures/results_*.png`.
+in 6); in exp_1 it was 12 of 18 (12 / 5). Figures: `experiments/eu_grid_scaling/figures/results_*.png`.
 
 ### 2.2 The decisive test, plus a size-matched control
 
@@ -151,8 +151,8 @@ table sizes as well. So the old table was also cut to the same 421 / 22 / 23 loc
 | new, 18 countries, 1,966 locations | 0.2116 ± 0.0013 | 1.2% | +0.0031 = the added countries |
 
 The SCM control is 0.2140–0.2141 in all four, so the differences come from the WOFOST data. Figure:
-`analysis/scaling/figures/decisive_test.png`; per-country values in
-`analysis/scaling/decisive_test_per_country.csv`.
+`experiments/eu_grid_scaling/figures/decisive_test.png`; per-country values in
+`experiments/eu_grid_scaling/decisive_test_per_country.csv`.
 
 **Reading.** The gain does not fully come back with the new FR/BE/DK cells. By the original criterion
 that points to (b), "something in the new pipeline differs". But the code is identical (§1.3, §1.4). What
@@ -170,7 +170,7 @@ better with the new data in both new runs (0.148–0.150, against 0.159 in exp_1
 
 ### 2.3 Simulation sanity per country
 
-Script: `src/data_checks/season_sanity.py`. Outputs: `analysis/scaling/sanity/`, and the figure
+Script: `src/data_checks/season_sanity.py`. Outputs: `experiments/eu_grid_scaling/sanity/`, and the figure
 `sanity_per_country.png`.
 
 | Country | Median yield (t/ha) | Seasons < 0.5 t/ha | Matured by EOS | Flowering − SOS (days) | Maturity − EOS (days, median) |
@@ -207,7 +207,7 @@ Script: `src/data_checks/season_sanity.py`. Outputs: `analysis/scaling/sanity/`,
 
 The tool is `nanotabicl.distribution_gap`, run on the old and the new table against all 18 CY-Bench
 countries. The number is the correlation, over the 153 features, between each feature's correlation
-with yield in WOFOST and in CY-Bench (`analysis/scaling/feature_yield_agreement.csv`).
+with yield in WOFOST and in CY-Bench (`experiments/eu_grid_scaling/feature_yield_agreement.csv`).
 
 | Country | Old table (all) | New table (all) | New table, same country |
 |---|---|---|---|
@@ -257,7 +257,7 @@ not explained by worse feature–yield relations in their simulated data. Spain 
 - training under `/projects/prjs1788/tnp-crop/nanotabicl/{exp_1_eu_grid, exp_1_eu_grid_frbedk, exp_1_old_matched_466}/`;
 - benchmark results under `/projects/prjs1788/tnp-crop/cybench_output/` with the same names.
 
-**Figures and tables** in `analysis/scaling/`:
+**Figures and tables** in `experiments/eu_grid_scaling/`:
 - figures: `data_*.png`, `results_*.png`, `decisive_test.png`, `sanity/sanity_per_country.png`;
 - CSVs: `data_per_country.csv`, `results_exp1_eu_grid_per_run.csv`, `decisive_test_per_country.csv`,
   `feature_yield_agreement.csv`.
@@ -269,5 +269,5 @@ not explained by worse feature–yield relations in their simulated data. Spain 
 - `scripts/slurm/run_scaling_checks.sh`
 - `scripts/slurm/run_repro_old.sh`
 - `src/data_checks/season_sanity.py`
-- `analysis/scaling/plot_data.py`
-- `analysis/scaling/plot_results.py`
+- `experiments/eu_grid_scaling/plot_data.py`
+- `experiments/eu_grid_scaling/plot_results.py`

@@ -9,7 +9,7 @@
 # 2. run_wofost_eu_grid_dense_omfix.sh: 7 chunks of 1,800 rows (two at a time), simulated + processed per chunk.
 # 3. merge the chunks' tables -> $RAW/processed/wofost_maize_daily.parquet.
 # 4. exp_1 on it, WOFOST only (3 seeds) as exp_1_eu_grid_dense_omfix; the default-TabICL reference is copied
-#    from exp_1_eu_grid_dense (not rerun). 5. old-vs-new distribution comparison (analysis/soc_fix).
+#    from exp_1_eu_grid_dense (not rerun). 5. old-vs-new distribution comparison (experiments/om_fix).
 
 set -euo pipefail
 REPO=/gpfs/home2/vnedungadi/tnp-crop
@@ -50,5 +50,5 @@ EXP=exp_1_eu_grid_dense_omfix REF_FROM=exp_1_eu_grid_dense TABLE=$RAW/processed/
 dist=$(sbatch --parsable --dependency=afterok:$merge --job-name=omfix-dist --partition=rome \
     --cpus-per-task=8 --mem=96G --time=02:00:00 \
     --output=$LOGS/omfix-dist_%j.out --error=$LOGS/omfix-dist_%j.err --wrap="
-cd $REPO && uv run python -m analysis.soc_fix.compare_distributions")
-echo "distribution comparison: $dist -> analysis/soc_fix/"
+cd $REPO && uv run python -m experiments.om_fix.compare_distributions")
+echo "distribution comparison: $dist -> experiments/om_fix/"

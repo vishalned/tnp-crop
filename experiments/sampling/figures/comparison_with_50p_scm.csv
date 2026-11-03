@@ -1,0 +1,8 @@
+run,nrmse_mean,anomaly_r_mean
+TabICL default,0.2142,0.2962
+SCM control,0.2141,0.2774
+"WOFOST, EU grid",0.2116,0.3092
+"WOFOST, densified (old soil)",0.2116,0.3091
+"WOFOST, densified (OM fix, new soil)",0.2103,0.327
++ log-uniform points per table,0.2089,0.3587
++ log-uniform points + 50 % SCM tables,0.2112,0.3083

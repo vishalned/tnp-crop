@@ -1,0 +1,34 @@
+# Named runs for the bar plots: legend label, colour and where the run's results are in results/runs.csv.
+# `setting` is the benchmark's "<model>:<tag>"; every pretrained run is one WOFOST (or SCM) pretraining per seed.
+tabicl_default:
+  {label: "TabICL default", experiment: exp_1_eu_grid_dense_omfix, setting: "tabicl:tabicl_default_single", color: "#7a7a7a"}
+scm_control:
+  {label: "SCM control", experiment: exp_1_eu_grid, setting: "tabicl_wofost:scm", color: "#f2c9a0"}
+wofost_eu_grid:
+  {label: "WOFOST, EU grid", experiment: exp_1_eu_grid, setting: "tabicl_wofost:wofost", color: "#8f7cc4"}
+wofost_dense_old_soil:
+  {label: "WOFOST, densified (old soil)", experiment: exp_1_eu_grid_dense, setting: "tabicl_wofost:wofost", color: "#7fcdb5"}
+wofost_omfix:
+  {label: "WOFOST, densified (OM fix, new soil)", experiment: exp_1_eu_grid_dense_omfix, setting: "tabicl_wofost:wofost", color: "#1b9e77"}
+loguniform:
+  {label: "+ log-uniform points per table", experiment: exp_2a_loguniform_points, setting: "tabicl_wofost:wofost", color: "#e08a1e"}
+loguniform_scm:
+  {label: "+ log-uniform points + 50 % SCM tables", experiment: exp_2b_loguniform_points_scm, setting: "tabicl_wofost:mix", color: "#b3122e"}
+irrigation_map:
+  {label: "+ irrigation map (MIRCA-OS 2015)", experiment: exp_3_irrigation_map, setting: "tabicl_wofost:wofost", color: "#2a78d6"}
+obs_noise:
+  {label: "+ observational noise (fPAR, ssm, rsm)", experiment: exp_4_obs_noise, setting: "tabicl_wofost:wofost", color: "#b3122e"}
+permuted_yields:
+  {label: "Sanity: yields permuted within each table", experiment: sanity_permuted_yields, setting: "tabicl_wofost:wofost", color: "#b3122e"}
+cultivar_tsum:
+  {label: "+ cultivar variation (TSUM x U(0.8, 1.2))", experiment: exp_7_cultivar_tsum, setting: "tabicl_wofost:wofost", color: "#a65628"}
+regions_all:
+  {label: "Pretrained on all 19 countries", experiment: exp_1_eu_grid_dense, setting: "tabicl_wofost:wofost", color: "#1b9e77"}
+regions_nw:
+  {label: "north-west only: FR BE NL DE DK", experiment: sanity_regions_nw, setting: "tabicl_wofost:wofost", color: "#a6761d"}
+regions_ce:
+  {label: "central-east only: PL CZ SK HU RO BG AT HR SI LT", experiment: sanity_regions_ce, setting: "tabicl_wofost:wofost", color: "#e6ab02"}
+regions_south:
+  {label: "south only: ES PT IT EL", experiment: sanity_regions_south, setting: "tabicl_wofost:wofost", color: "#e7298a"}
+regions_frbedk:
+  {label: "FR BE DK only", experiment: sanity_regions_frbedk, setting: "tabicl_wofost:wofost", color: "#17becf"}

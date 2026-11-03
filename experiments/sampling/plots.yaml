@@ -1,0 +1,8 @@
+- file: comparison.png
+  title: "CY-Bench walk-forward, 18 European maize countries: table-sampling experiments (mean over 3 pretraining seeds)"
+  seed: mean
+  runs: [tabicl_default, scm_control, wofost_eu_grid, wofost_dense_old_soil, wofost_omfix, loguniform]
+- file: comparison_with_50p_scm.png
+  title: "CY-Bench walk-forward, 18 European maize countries: table-sampling experiments (mean over 3 pretraining seeds)"
+  seed: mean
+  runs: [tabicl_default, scm_control, wofost_eu_grid, wofost_dense_old_soil, wofost_omfix, loguniform, loguniform_scm]

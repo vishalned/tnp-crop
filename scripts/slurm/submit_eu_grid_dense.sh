@@ -9,7 +9,7 @@
 # 1. run_wofost_eu_grid_dense.sh: the new locations in chunks (one array task at a time, so Earth Engine
 #    sees at most WORKERS requests at once); each chunk simulated and processed on its own.
 # 2. merge: the existing EU grid table (the CSV's first 2,000 rows) + every chunk's table -> one table, and
-#    the manifests -> one manifest; then the table shares (analysis/scaling/table_share.py).
+#    the manifests -> one manifest; then the table shares (experiments/eu_grid_scaling/table_share.py).
 # 3. exp_1 on the merged table, WOFOST only (DATAS=crop), as exp_1_eu_grid_dense (submit_exp1.sh).
 
 set -euo pipefail
@@ -39,7 +39,7 @@ merge=$(sbatch --parsable --dependency=afterok:$sim --job-name=wofost-dense-merg
 cd $REPO && \
 uv run python -m src.data_pipeline.wofost.merge_processed_tables $OLD/processed$parts -o $RAW/processed \
     --manifests $OLD/dataset_manifest.csv$manifests && \
-uv run python -m analysis.scaling.table_share eu_grid_dense=$RAW/processed/wofost_maize_daily.parquet")
+uv run python -m experiments.eu_grid_scaling.table_share eu_grid_dense=$RAW/processed/wofost_maize_daily.parquet")
 echo "merge + table shares: $merge -> $RAW/processed/wofost_maize_daily.parquet"
 
 EXP=exp_1_eu_grid_dense TABLE=$RAW/processed/wofost_maize_daily.parquet DATAS=crop AFTER=$merge \

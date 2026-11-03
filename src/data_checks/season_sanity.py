@@ -4,7 +4,7 @@ against the crop calendar. Compares several runs (e.g. the FR/BE/DK run and the 
     uv run python -m src.data_checks.season_sanity \
         --run old /projects/prjs1788/tnp-crop/wofost_calendar/dataset_manifest.csv data/raw/locations/locations_maize.csv \
         --run new /projects/prjs1788/tnp-crop/wofost_eu_grid/dataset_manifest.csv data/raw/locations/locations_maize_eu27_cell01_n2000_s42.csv \
-        --out analysis/scaling/sanity --workers 16
+        --out experiments/eu_grid_scaling/sanity --workers 16
 
 Reads every successful season's daily output (DVS) to get flowering (first day DVS >= 1) and maturity
 (first day DVS >= 2), so run it in a job. Writes `season_dates.csv.gz` (one row per season),

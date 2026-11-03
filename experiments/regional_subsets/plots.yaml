@@ -1,0 +1,13 @@
+- file: overview.png
+  title: "CY-Bench walk-forward, 18 European maize countries: WOFOST pretraining on regional subsets of the densified table (old soil), seed 0"
+  seed: 0
+  weighted: true
+  figsize: [17, 8.2]
+  title_size: 11
+  runs:
+    - {use: tabicl_default, label: "TabICL default (single pass)"}
+    - regions_all
+    - regions_nw
+    - regions_ce
+    - regions_south
+    - regions_frbedk

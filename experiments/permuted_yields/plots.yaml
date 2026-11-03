@@ -1,0 +1,4 @@
+- file: overview.png
+  title: "CY-Bench walk-forward, 18 European maize countries: permuted-yield sanity run (pretraining seed 0)"
+  seed: 0
+  runs: [tabicl_default, scm_control, wofost_omfix, loguniform, irrigation_map, permuted_yields]

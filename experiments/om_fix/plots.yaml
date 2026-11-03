@@ -1,0 +1,5 @@
+- file: comparison.png
+  title: "CY-Bench walk-forward, 18 European maize countries (mean over 3 pretraining seeds)"
+  seed: mean
+  figsize: [15, 7.5]
+  runs: [tabicl_default, scm_control, wofost_eu_grid, wofost_dense_old_soil, wofost_omfix]

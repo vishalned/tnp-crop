@@ -23,10 +23,10 @@ and the largest `n_points` that can ever be drawn is 4096 // 6 = **682**.
 
 ## 2. What the "share" is
 
-Three numbers per country, from `analysis/scaling/table_share.py`. It replays the rule above (2,000
+Three numbers per country, from `experiments/eu_grid_scaling/table_share.py`. It replays the rule above (2,000
 steps × 8 tables × 3 seeds) on the real table, reading only the location, year and maturity columns;
 the replay uses its own random numbers, so the numbers are expected values, not the exact tables of a
-run. Output: `analysis/scaling/table_share.csv`.
+run. Output: `experiments/eu_grid_scaling/table_share.csv`.
 
 - **lead share**: share of batches the country leads. Always ≈ 1 / number of countries.
 - **lead built**: share of batches whose first table could actually be built from the lead country. Lower
@@ -208,4 +208,4 @@ pixel's weather, §4). Result: **12,382 locations** (2,000 + 10,382) in 6,591 pi
 
 ## 6. Results
 
-_Filled in after `exp_1_eu_grid_dense` (figures in `analysis/scaling/figures/`)._
+_Filled in after `exp_1_eu_grid_dense` (figures in `experiments/eu_grid_scaling/figures/`)._
