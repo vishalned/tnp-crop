@@ -186,6 +186,11 @@ def main():
     p.add_argument("--max-points", type=int, default=None, help="default: up to all points of a region")
     p.add_argument("--points-sampling", default="uniform", choices=["uniform", "loguniform"],
                    help="distribution of the number of points per crop table between its lower end and the cap")
+    p.add_argument("--permute-yields", action="store_true",
+                   help="sanity test: shuffle the yields among the rows of every crop training table (destroys the feature -> yield link)")
+    p.add_argument("--obs-noise", action="store_true",
+                   help="observational noise on fpar / ssm / rsm in the crop training tables (nanotabicl/obs_noise.py); "
+                        "sigma and bg per table are logged to noise_params.csv")
     p.add_argument("--min-table-points", type=int, default=None,
                    help="lower end of points per table (default: --min-points; regions with fewer points are still dropped)")
     p.add_argument("--max-rows", type=int, default=4096, help="cap on rows per crop table (memory)")
@@ -239,6 +244,7 @@ def main():
             train_years=args.train_years, target=args.target, horizon=args.horizon, countries=args.countries,
             episodes=args.crop_episodes, min_points=args.min_points, max_points=args.max_points, max_rows=args.max_rows,
             points_sampling=args.points_sampling, min_table_points=args.min_table_points,
+            obs_noise=args.obs_noise, obs_noise_seed=args.seed, permute_yields=args.permute_yields,
             min_context_years=args.min_context_years, max_context_years=args.max_context_years))
         sizes = {c: len(p) for c, p in crop.country_points.items()}
         print(f"crop table: {len(crop.df)} rows, {crop.features.shape[1]} features, points per region {sizes}"
@@ -269,6 +275,10 @@ def main():
     log_path = os.path.join(args.out_dir, "log.csv")
     best_rmse = float("inf")
     running, t0 = [], time.time()
+    noise_file = open(os.path.join(args.out_dir, "noise_params.csv"), "w", newline="") if args.obs_noise else None
+    noise_log = csv.writer(noise_file) if noise_file else None
+    if noise_log:
+        noise_log.writerow(["step", "table", "sigma_fpar", "bg_fpar", "sigma_ssm", "sigma_rsm"])
     with open(log_path, "w", newline="") as log_file:
         log = csv.writer(log_file)
         log.writerow(["step", "source", "loss", "lr", "val_rmse", "val_r2", "val_baseline_rmse", "peak_mem_gb",
@@ -276,6 +286,8 @@ def main():
         for step in range(n_steps):
             source = "prior" if args.data in ("prior", "prior-matched") or (args.data in ("mix", "mix-matched") and rng.random() < args.prior_fraction) else "crop"
             batch = next(streams[source])
+            if noise_log and "noise_params" in batch:  # this step's tables (one row per table)
+                noise_log.writerows([[step + 1, t, *map(float, row)] for t, row in enumerate(batch["noise_params"].tolist())])
             x, y, n = batch["x"].to(args.device), batch["y"].to(args.device), int(batch["n_train"])
             for group in optimizer.param_groups:
                 group["lr"] = lr_at(step, args.lr, args.warmup, args.steps)
@@ -301,9 +313,13 @@ def main():
                               val.get("r2"), val.get("baseline_rmse"), round(peak, 2), x.shape[1], x.shape[2],
                               round(time.time() - t0, 1)])
                 log_file.flush()
+                if noise_file:
+                    noise_file.flush()
                 running = []
                 if cuda:
                     torch.cuda.reset_peak_memory_stats()
+    if noise_file:
+        noise_file.close()
     checkpoint.save(os.path.join(args.out_dir, "last.pt"), model, model_config, step=n_steps, args=vars(args))
     print(f"done; checkpoints in {args.out_dir}")
 

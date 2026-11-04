@@ -28,7 +28,14 @@ RUNS = {
     "WOFOST, densified EU grid (old soil)": ("exp_1_eu_grid_dense", "tabicl_wofost:wofost"),
     "WOFOST, densified EU grid, OM fix": ("exp_1_eu_grid_dense_omfix", "tabicl_wofost:wofost"),
 }
-COLORS = ["#7a7a7a", "#c9b8e8", "#f2c9a0", "#8f7cc4", "#d95f02", "#7fcdb5", "#1b9e77"]
+# the clean figure: label in the figure -> run above
+PLOT = {
+    "TabICL default": ("TabICL default", "#7a7a7a"),
+    "SCM control": ("SCM control, EU grid", "#f2c9a0"),
+    "WOFOST, EU grid": ("WOFOST, EU grid", "#8f7cc4"),
+    "WOFOST, densified (old soil)": ("WOFOST, densified EU grid (old soil)", "#7fcdb5"),
+    "WOFOST, densified (OM fix, new soil)": ("WOFOST, densified EU grid, OM fix", "#1b9e77"),
+}
 
 
 def main():
@@ -56,18 +63,27 @@ def main():
           f"anomaly r higher in {(per_country['anomaly_r']['WOFOST, densified EU grid, OM fix'] > per_country['anomaly_r']['WOFOST, densified EU grid (old soil)']).sum()}")
 
     countries = per_country.index.tolist()
+    plt.rcParams.update({"font.size": 10, "axes.spines.top": False, "axes.spines.right": False})
     fig, axes = plt.subplots(2, 1, figsize=(15, 7.5), sharex=True)
-    x, w = np.arange(len(countries)), 0.11
+    n = len(PLOT)
+    w = 0.84 / n
+    x = np.arange(len(countries) + 1) + (np.arange(len(countries) + 1) >= len(countries)) * 0.6  # gap before the mean group
     for ax, metric, title in ((axes[0], "nrmse", "NRMSE (lower is better)"), (axes[1], "anomaly_r", "anomaly r (higher is better)")):
-        for i, (run, c) in enumerate(zip(RUNS, COLORS)):
-            ax.bar(x + (i - 3) * w, per_country[metric][run], w, color=c, label=run)
+        for i, (label, (run, color)) in enumerate(PLOT.items()):
+            vals = per_country[metric][run].tolist() + [per_country[metric][run].mean()]
+            pos = x + (i - (n - 1) / 2) * w
+            ax.bar(pos, vals, w, color=color, label=label)
+            ax.text(pos[-1], vals[-1] + (0.003 if metric == "nrmse" else 0.01), f"{vals[-1]:.3f}", ha="center", fontsize=7, rotation=90)
+        ax.axvline(len(countries) - 0.3, color="k", lw=0.7, ls=":")
+        ax.axhline(0, color="k", lw=0.6)
         ax.set_ylabel(title)
-    axes[1].set_xticks(x, countries)
-    axes[0].legend(fontsize=7, ncol=4, frameon=False)
-    fig.suptitle("CY-Bench walk-forward, 18 European maize countries: OM-fix run vs earlier runs (mean over pretraining seeds)")
+        ax.grid(axis="y", color="#e5e5e5", lw=0.6)
+        ax.set_axisbelow(True)
+    axes[1].set_xticks(x, countries + ["mean of all"])
+    axes[0].legend(fontsize=8, ncol=3, frameon=False, loc="upper left")
+    fig.suptitle("CY-Bench walk-forward, 18 European maize countries (mean over 3 pretraining seeds)")
     fig.tight_layout()
-    fig.savefig(f"{OUT}/figures/comparison.png", dpi=140)
-
+    fig.savefig(f"{OUT}/figures/comparison.png", dpi=150)
 
 if __name__ == "__main__":
     main()

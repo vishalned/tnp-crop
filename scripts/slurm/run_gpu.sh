@@ -22,6 +22,7 @@ MODE=${MODE:-structured}  # structured | random
 DATA=${DATA:-crop}        # crop | prior-matched (control: SCM prior tables with the crop batches' shapes) | mix-matched (crop + PRIOR_FRACTION SCM tables of similar shapes)
 POINTS_SAMPLING=${POINTS_SAMPLING:-}      # uniform (default) | loguniform: points per crop table
 MIN_TABLE_POINTS=${MIN_TABLE_POINTS:-}    # lower end of points per crop table (default: the region filter, 10)
+OBS_NOISE=${OBS_NOISE:-}                  # 1: observational noise on fpar / ssm / rsm in the crop training tables
 PRIOR_FRACTION=${PRIOR_FRACTION:-}        # share of SCM batches with DATA=mix-matched (default 0.5)
 STEPS=${STEPS:-5000}      # length of the learning-rate schedule
 STOP_AT=${STOP_AT:-$STEPS}  # stop early, keeping the schedule of STEPS
@@ -43,7 +44,7 @@ uv run python -u -m nanotabicl.train --init official --data $DATA --crop-episode
     --steps $STEPS --stop-at $STOP_AT --save-steps $SAVE_STEPS --lr $LR --weight-decay $WD --seed $SEED \
     ${WARMUP_FRAC:+--warmup-fraction $WARMUP_FRAC} --num-workers $WORKERS \
     ${POINTS_SAMPLING:+--points-sampling $POINTS_SAMPLING} ${MIN_TABLE_POINTS:+--min-table-points $MIN_TABLE_POINTS} \
-    ${PRIOR_FRACTION:+--prior-fraction $PRIOR_FRACTION} \
+    ${PRIOR_FRACTION:+--prior-fraction $PRIOR_FRACTION} ${OBS_NOISE:+--obs-noise} ${PERMUTE_YIELDS:+--permute-yields} \
     ${TRAIN_COUNTRIES:+--countries ${TRAIN_COUNTRIES//:/ }} --micro-batch-size $MICRO_BATCH --checkpoint-activations --out-dir $OUT
 
 # test years (WOFOST tables)

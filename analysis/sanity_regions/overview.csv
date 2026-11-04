@@ -1,0 +1,7 @@
+run,nrmse_mean,nrmse_weighted,anomaly_r_mean,anomaly_r_weighted
+TabICL default (single pass),0.2142,0.2043,0.2962,0.2318
+Pretrained on all 19 countries,0.2115,0.2008,0.3129,0.2837
+north-west only: FR BE NL DE DK,0.2106,0.2018,0.3142,0.284
+central-east only: PL CZ SK HU RO BG AT HR SI LT,0.2106,0.2004,0.334,0.2992
+south only: ES PT IT EL,0.2142,0.2039,0.316,0.2708
+FR BE DK only,0.2071,0.1996,0.3167,0.2803

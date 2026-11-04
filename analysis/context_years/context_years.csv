@@ -1,0 +1,69 @@
+country,ctx,model,nrmse,anomaly_r,r2,n_region_years
+DE,2,TabICL default,0.2145,0.0347,0.2279,576
+ES,2,TabICL default,0.1685,0.1444,0.8002,233
+FR,2,TabICL default,0.1872,-0.0022,0.1899,456
+HU,2,TabICL default,0.1807,0.39,-0.1974,100
+DE,3,TabICL default,0.1999,0.1679,0.3294,576
+ES,3,TabICL default,0.1285,0.0908,0.8838,233
+FR,3,TabICL default,0.1808,0.114,0.2439,456
+HU,3,TabICL default,0.1741,0.4634,-0.1113,100
+DE,5,TabICL default,0.1837,0.3406,0.4334,576
+ES,5,TabICL default,0.1268,0.0951,0.8869,233
+FR,5,TabICL default,0.1666,0.1269,0.3579,456
+HU,5,TabICL default,0.2312,0.4668,-0.9592,100
+DE,all,TabICL default,0.1716,0.4265,0.5058,576
+ES,all,TabICL default,0.1578,0.0936,0.8248,233
+FR,all,TabICL default,0.1521,0.1705,0.4652,456
+HU,all,TabICL default,0.2806,0.4356,-1.8869,100
+SN,all,TabICL default,0.4665,-0.0578,0.2498,187
+DE,2,SCM control,0.2156,0.057,0.2197,576
+ES,2,SCM control,0.1702,0.1508,0.796,233
+FR,2,SCM control,0.1948,-0.0496,0.1224,456
+HU,2,SCM control,0.1672,0.3703,-0.0249,100
+DE,3,SCM control,0.202,0.2041,0.3152,576
+ES,3,SCM control,0.1312,0.0381,0.8788,233
+FR,3,SCM control,0.1816,0.1351,0.2374,456
+HU,3,SCM control,0.1686,0.4081,-0.0423,100
+DE,5,SCM control,0.1852,0.3354,0.4247,576
+ES,5,SCM control,0.1266,0.0721,0.8872,233
+FR,5,SCM control,0.1782,0.0596,0.2659,456
+HU,5,SCM control,0.2138,0.5495,-0.6756,100
+DE,all,SCM control,0.1706,0.4144,0.5115,576
+ES,all,SCM control,0.1552,0.0736,0.8304,233
+FR,all,SCM control,0.1558,0.1708,0.4386,456
+HU,all,SCM control,0.2585,0.4856,-1.4493,100
+SN,all,SCM control,0.4675,-0.0459,0.2466,187
+DE,2,"WOFOST (densified OM fix, log-uniform)",0.182,0.2266,0.4444,576
+ES,2,"WOFOST (densified OM fix, log-uniform)",0.1654,0.1623,0.8075,233
+FR,2,"WOFOST (densified OM fix, log-uniform)",0.1923,-0.0073,0.1446,456
+HU,2,"WOFOST (densified OM fix, log-uniform)",0.1782,0.6223,-0.1648,100
+DE,3,"WOFOST (densified OM fix, log-uniform)",0.1777,0.337,0.4699,576
+ES,3,"WOFOST (densified OM fix, log-uniform)",0.1361,0.0931,0.8697,233
+FR,3,"WOFOST (densified OM fix, log-uniform)",0.1899,0.1472,0.1658,456
+HU,3,"WOFOST (densified OM fix, log-uniform)",0.1891,0.4731,-0.3108,100
+DE,5,"WOFOST (densified OM fix, log-uniform)",0.1682,0.459,0.5254,576
+ES,5,"WOFOST (densified OM fix, log-uniform)",0.1315,0.1041,0.8784,233
+FR,5,"WOFOST (densified OM fix, log-uniform)",0.1551,0.1514,0.4438,456
+HU,5,"WOFOST (densified OM fix, log-uniform)",0.1992,0.465,-0.4555,100
+DE,all,"WOFOST (densified OM fix, log-uniform)",0.1547,0.5288,0.5983,576
+ES,all,"WOFOST (densified OM fix, log-uniform)",0.1808,0.008,0.7699,233
+FR,all,"WOFOST (densified OM fix, log-uniform)",0.1317,0.4048,0.5987,456
+HU,all,"WOFOST (densified OM fix, log-uniform)",0.2737,0.4851,-1.7463,100
+SN,all,"WOFOST (densified OM fix, log-uniform)",0.4611,-0.0862,0.267,187
+DE,2,+ irrigation map,0.1881,0.1787,0.4065,576
+ES,2,+ irrigation map,0.1666,0.1121,0.8047,233
+FR,2,+ irrigation map,0.1858,-0.0325,0.2019,456
+HU,2,+ irrigation map,0.1977,0.5707,-0.4325,100
+DE,3,+ irrigation map,0.1734,0.3278,0.4955,576
+ES,3,+ irrigation map,0.1402,0.0429,0.8616,233
+FR,3,+ irrigation map,0.1805,0.1418,0.2468,456
+HU,3,+ irrigation map,0.2031,0.5037,-0.5125,100
+DE,5,+ irrigation map,0.1661,0.4668,0.537,576
+ES,5,+ irrigation map,0.1343,0.0797,0.8731,233
+FR,5,+ irrigation map,0.1483,0.1883,0.4915,456
+HU,5,+ irrigation map,0.2063,0.5325,-0.5605,100
+DE,all,+ irrigation map,0.1551,0.5423,0.5966,576
+ES,all,+ irrigation map,0.1794,0.0188,0.7735,233
+FR,all,+ irrigation map,0.1284,0.4319,0.6188,456
+HU,all,+ irrigation map,0.2469,0.5667,-1.2349,100
+SN,all,+ irrigation map,0.4685,-0.0911,0.2433,187

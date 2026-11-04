@@ -177,6 +177,45 @@ def test_loguniform_points_per_table(table_path, tables):
         CropTables(table_path, CropTableConfig(points_sampling="normal"))
 
 
+def test_observation_noise_changes_only_the_noisy_columns_and_is_exact_at_zero(table_path):
+    from nanotabicl.obs_noise import NAMES, ObservationNoise
+
+    clean = CropTables(table_path)
+    noisy = CropTables(table_path, CropTableConfig(obs_noise=True, obs_noise_seed=3))
+    assert np.array_equal(clean.features, noisy.features)  # the stored (validation / test) features stay clean
+    names = clean.feature_names
+    noise_cols = sorted(j for n in names for j in [names.index(n)] if any(n.startswith(v + "_") for v in NAMES.values()))
+    other = [j for j in range(len(names)) if j not in noise_cols]
+    obs = noisy.noise
+    assert isinstance(obs, ObservationNoise) and {c[4] for c in obs.columns} == set(noise_cols)
+    rows = np.arange(0, 60)
+    # sigma = 0 and bg = 0: the recomputed features equal the clean ones (fpar, cum_fpar, ssm, rsm per block)
+    for col, values in obs.apply(rows, np.array([0.0, 0.0, 0.0, 0.0])).items():
+        np.testing.assert_allclose(values, clean.features[rows, col], atol=1e-4, rtol=1e-4)
+    # with noise: only those columns change, and they do change
+    params = np.array([0.2, 0.1, 0.3, 0.25])
+    changed = obs.apply(rows, params)
+    assert set(changed) == set(noise_cols)
+    assert all(np.abs(v - clean.features[rows, c]).max() > 1e-3 for c, v in changed.items() if c in changed)
+    # a sampled batch: noise only in those columns, logged sigma / bg within their ranges, validation tables clean
+    b = noisy.sample_batch(np.random.default_rng(0), batch_size=3)
+    def clean_rows(x):  # match on the columns that carry no noise
+        return np.array([int(np.flatnonzero((clean.features[:, other] == r.numpy()[other]).all(1))[0]) for r in x])
+
+    ref = np.array([clean.features[clean_rows(x)] for x in b["x"]])
+    assert np.array_equal(b["x"].numpy()[:, :, other], ref[:, :, other])
+    assert np.abs(b["x"].numpy()[:, :, noise_cols] - ref[:, :, noise_cols]).max() > 1e-3
+    p = b["noise_params"].numpy()
+    assert p.shape == (3, 4) and (p[:, [0, 2, 3]] >= 0).all() and (p[:, [0, 2, 3]] <= 0.3).all() and ((p[:, 1] >= 0.05) & (p[:, 1] <= 0.2)).all()
+    # seeded: the same seed draws the same tables and noise
+    a1 = CropTables(table_path, CropTableConfig(obs_noise=True, obs_noise_seed=3)).sample_batch(np.random.default_rng(5), 2)
+    a2 = CropTables(table_path, CropTableConfig(obs_noise=True, obs_noise_seed=3)).sample_batch(np.random.default_rng(5), 2)
+    assert np.array_equal(a1["x"].numpy(), a2["x"].numpy()) and np.array_equal(a1["noise_params"].numpy(), a2["noise_params"].numpy())
+    # fpar stays within 0-100 % after the noise
+    series = obs.noisy_series(rows, np.array([0.3, 0.2, 0.0, 0.0]))
+    assert np.nanmax(series["fpar"]) <= 100 and np.nanmin(series["fpar"]) >= 0
+
+
 def test_matched_prior_shapes_for_mixing_follow_the_crop_sampler(table_path):
     from nanotabicl.prior_tables import crop_batch_shapes
 
@@ -368,3 +407,13 @@ def test_regressor_ensemble_matches_tabicl_regressor():
     official = TabICLRegressor(n_estimators=8, random_state=0, device="cpu", use_amp=False, use_fa3=False)
     raw = official.fit(x[:100], y[:100]).predict(x[100:], output_type="raw_quantiles")
     np.testing.assert_allclose(pred, raw.mean(-1), rtol=1e-3, atol=1e-3)
+
+
+def test_permute_yields_keeps_each_tables_yield_values_but_breaks_the_row_link(table_path):
+    base = CropTables(table_path, CropTableConfig())
+    perm = CropTables(table_path, CropTableConfig(permute_yields=True))
+    a = base.sample_batch(np.random.default_rng(3), batch_size=4)
+    b = perm.sample_batch(np.random.default_rng(3), batch_size=4)
+    assert torch.equal(a["x"], b["x"]) and a["n_train"] == b["n_train"]  # same tables and features
+    assert torch.allclose(a["y"].sort(dim=1).values, b["y"].sort(dim=1).values)  # same yields per table
+    assert not torch.equal(a["y"], b["y"])
