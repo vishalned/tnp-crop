@@ -25,6 +25,7 @@ import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 import rootutils
 
@@ -99,6 +100,7 @@ def _empty_row(job: dict, year: int, jitter_index: int, sowing_offset_days: int)
         "sowing_offset_days": sowing_offset_days,
         "sos_doy": job["sos_doy"],
         "eos_doy": job["eos_doy"],
+        "tsum_factor": job.get("tsum_factor"),
         "status": "failed",
         "error": None,
         "sowing_date": None,
@@ -111,7 +113,7 @@ def _empty_row(job: dict, year: int, jitter_index: int, sowing_offset_days: int)
     }
 
 
-def _run_location_group(jobs: list, sowing_jitter_days: int, save_dir: str, num_locations: int) -> list:
+def _run_location_group(jobs: list, sowing_jitter_days: int, save_dir: str, num_locations: int, model_name: Optional[str] = None) -> list:
     """Run every episode for a group of location jobs in the same ERA5-Land
     pixel (or with the same coordinates, e.g. one point listed once for wheat
     and once for maize), one after the other, and return their manifest rows.
@@ -145,6 +147,8 @@ def _run_location_group(jobs: list, sowing_jitter_days: int, save_dir: str, num_
                     eos_doy=job["eos_doy"],
                     output_dir=save_dir,
                     write_summary=False,  # its fields are in the manifest
+                    model_name=model_name,
+                    tsum_factor=job.get("tsum_factor"),
                 )
                 summary = result["summary"]
                 row.update(
@@ -188,6 +192,9 @@ def generate_wofost_dataset(
     num_workers: Optional[int] = None,
     max_locations: Optional[int] = None,
     first_location: int = 0,
+    model_name: Optional[str] = None,
+    tsum_factor_range: Optional[tuple] = None,
+    tsum_seed: int = 0,
 ) -> dict:
     """Run WOFOST episodes for a batch of locations -- every year in
     `[start_year, end_year]` (sowing year), `num_jitters` sowing dates per
@@ -251,6 +258,9 @@ def generate_wofost_dataset(
             "eos_doy": int(eos_doy) if pd.notna(eos_doy) else None,
             "years": years,
             "sowing_offsets": [_sample_jitter_offsets(rng, num_jitters, sowing_jitter_days) for _ in years],
+            # cultivar variation: one factor per location (a location keeps its cultivar over the years), drawn from its own
+            # seeded stream (tsum_seed, location_index), so it does not depend on chunks or workers
+            "tsum_factor": float(np.random.default_rng([tsum_seed, i]).uniform(*tsum_factor_range)) if tsum_factor_range else None,
         }
         if i >= first_location and (max_locations is None or i < max_locations):
             # one worker per ERA5-Land pixel (or per coordinate near a pixel edge): the pixel's locations run
@@ -273,7 +283,7 @@ def generate_wofost_dataset(
     group_list = list(groups.values())
     if num_workers <= 1:
         for jobs in group_list:
-            record(_run_location_group(jobs, sowing_jitter_days, save_dir, len(locations)))
+            record(_run_location_group(jobs, sowing_jitter_days, save_dir, len(locations), model_name))
     else:
         print(f"Running {len(group_list)} locations on {num_workers} worker processes.", flush=True)
         # spawn (not fork): each worker starts clean and initialises its own
@@ -281,7 +291,7 @@ def generate_wofost_dataset(
         context = multiprocessing.get_context("spawn")
         with ProcessPoolExecutor(max_workers=num_workers, mp_context=context) as executor:
             futures = {
-                executor.submit(_run_location_group, jobs, sowing_jitter_days, save_dir, len(locations)): jobs
+                executor.submit(_run_location_group, jobs, sowing_jitter_days, save_dir, len(locations), model_name): jobs
                 for jobs in group_list
             }
             for future in as_completed(futures):
@@ -340,6 +350,9 @@ def main():
     parser.add_argument("--workers", dest="num_workers", type=int, default=None, help="Worker processes running locations in parallel (default: min(8, cpu count); 1 = sequential).")
     parser.add_argument("--max-locations", dest="max_locations", type=int, default=None, help="Only run the first N locations of the CSV (default: all).")
     parser.add_argument("--first-location", dest="first_location", type=int, default=0, help="Skip the CSV's rows before this one (default 0); offsets are drawn for all rows.")
+    parser.add_argument("--model-name", dest="model_name", type=str, default=None, help="PCSE model (default: the water-limited Wofost81_WLP_MLWB); Wofost81_PP = potential production, i.e. fully irrigated, no soil needed.")
+    parser.add_argument("--tsum-factor-range", dest="tsum_factor_range", type=float, nargs=2, default=None, metavar=("LO", "HI"), help="Cultivar variation: per location one factor ~ U(LO, HI) multiplies both TSUM1 and TSUM2 (default: none, the crop file's values).")
+    parser.add_argument("--tsum-seed", dest="tsum_seed", type=int, default=0, help="Seed of the per-location TSUM factors (default 0).")
     parser.add_argument("-o", "--output-dir", dest="output_dir", type=str, default=DEFAULT_WOFOST_SAVE_DIR)
 
     args = parser.parse_args()
@@ -358,6 +371,9 @@ def main():
         num_workers=args.num_workers,
         max_locations=args.max_locations,
         first_location=args.first_location,
+        model_name=args.model_name,
+        tsum_factor_range=tuple(args.tsum_factor_range) if args.tsum_factor_range else None,
+        tsum_seed=args.tsum_seed,
     )
 
 

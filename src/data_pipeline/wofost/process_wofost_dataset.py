@@ -103,6 +103,8 @@ def soil_moisture_columns(daily: pd.DataFrame, depths_cm=(10, 100)) -> dict:
     `{"SSM": 0-10 cm, "RSM": 0-100 cm}` (CY-Bench's GLDAS `ssm`/`rsm`)."""
     zmins, zmaxs = default_zs()
     out = {}
+    if "WC_layer0" not in daily:  # potential production (fully irrigated): no soil water balance, no soil moisture
+        return {"SSM": pd.Series(float("nan"), index=daily.index), "RSM": pd.Series(float("nan"), index=daily.index)}
     for name, depth in zip(("SSM", "RSM"), depths_cm):
         total = 0.0
         for i, (z0, z1) in enumerate(zip(zmins, zmaxs)):
@@ -216,6 +218,7 @@ def process_episode(
         "sowing_doy": sowing_date.timetuple().tm_yday,
         "sowing_date": sowing_date.isoformat(),
         "sowing_offset_days": (sowing_date - season_start).days,
+        "tsum_factor": row["tsum_factor"] if pd.notna(row.get("tsum_factor")) else float("nan"),  # cultivar variation (metadata, not a feature)
         "maturity_date": maturity_date.isoformat(),
         "season_length_days": (maturity_date - sowing_date).days,
         "reached_maturity": reached_maturity,
@@ -343,7 +346,7 @@ def process_wofost_dataset(
                       "rsm": "kg/m2 (0-100 cm)", "awc": "cm/m", "bulk_density": "g/cm3"},
             "ids": ["sample_id", "location_index", "location_id"] + (["country"] if countries is not None else [])
             + ["crop", "year", "sowing_year", "jitter_index"],
-            "metadata": ["sowing_date", "sowing_offset_days", "maturity_date", "season_length_days", "reached_maturity",
+            "metadata": ["sowing_date", "sowing_offset_days", "tsum_factor", "maturity_date", "season_length_days", "reached_maturity",
                          "window_start", "window_end"],
             "static_features": default_static_features(),
             "timeseries_features": timeseries,

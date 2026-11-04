@@ -1,0 +1,22 @@
+tsum factor: n=12070, mean 1.000, min 0.800, max 1.200
+seasons: 579,360; matured with finite yield: old 96.952%, new 93.996%
+usable locations: old 10,842, new 10,316 of 12,070  (usable in both 9,908, only old 934, only new 408)
+countries with >= 682 usable locations (4096 rows / 6 rows per point): old 12, new 7
+
+pooled over matured training-year seasons of the usable locations:
+  old: yield mean 6.14 sd 4.09 t/ha; season length mean 132.7 sd 22.7 d
+  new: yield mean 6.20 sd 4.11 t/ha; season length mean 129.6 sd 23.1 d
+
+mean of the per-country values (diversity):
+yield_mean_old              6.474
+yield_sd_old                2.525
+season_length_mean_old    137.262
+season_length_sd_old       11.959
+spatial_sd_old              1.689
+interannual_sd_old          1.813
+yield_mean_new              6.877
+yield_sd_new                2.536
+season_length_mean_new    133.522
+season_length_sd_new       16.118
+spatial_sd_new              1.908
+interannual_sd_new          1.598

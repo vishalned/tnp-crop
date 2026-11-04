@@ -50,6 +50,8 @@ def generate_wofost_episode(
     eos_doy: Optional[int] = None,
     pre_season_days: Optional[int] = None,
     write_summary: bool = True,
+    model_name: Optional[str] = None,
+    tsum_factor: Optional[float] = None,
 ) -> dict:
     """Run one end-to-end WOFOST/PCSE simulation episode for a location/year
     and cache the daily driver+output trajectory (with CYBench-aligned
@@ -106,12 +108,17 @@ def generate_wofost_episode(
         season_end = datetime.date(eos_year, 1, 1) + datetime.timedelta(days=int(eos_doy) - 1)
         campaign_end = max(campaign_end, season_end + datetime.timedelta(days=1))
 
-    model_class = getattr(pcse_models, wofost_model_name())
+    model_name = model_name if model_name is not None else wofost_model_name()
+    model_class = getattr(pcse_models, model_name)
+    potential = model_name.endswith("_PP")  # potential production = fully irrigated: no water balance, no soil input
 
-    print(f"building soil profile for longitude: {longitude}, latitude: {latitude}")
-    soil_data, static_features = generate_soil_data_for_wofost(
-        longitude, latitude, force_refresh=force_refresh_soil
-    )
+    if potential:
+        soil_data, static_features = None, {"awc": float("nan"), "bulk_density": float("nan")}  # no soil in PP
+    else:
+        print(f"building soil profile for longitude: {longitude}, latitude: {latitude}")
+        soil_data, static_features = generate_soil_data_for_wofost(
+            longitude, latitude, force_refresh=force_refresh_soil
+        )
 
     print(f"getting weather to run WOFOST for longitude: {longitude}, latitude: {latitude}, from {campaign_start}")
     weather_data_provider = get_gee_weather_provider_for_location(
@@ -126,6 +133,7 @@ def generate_wofost_episode(
         crop_name=crop,
         variety_name=variety_name,
         soil_data=soil_data,
+        tsum_factor=tsum_factor,
     )
     agromanagement = build_agromanagement(
         crop_name=crop,
