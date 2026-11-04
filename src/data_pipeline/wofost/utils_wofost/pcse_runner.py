@@ -34,6 +34,7 @@ def build_parameter_provider(
     variety_name: str,
     soil_data: Optional[dict],
     site_parameters: Optional[dict] = None,
+    tsum_factor: Optional[float] = None,
 ) -> ParameterProvider:
     """Assemble crop + soil + site parameters into one `ParameterProvider`.
 
@@ -48,6 +49,9 @@ def build_parameter_provider(
 
     params = ParameterProvider(sitedata=site_data, soildata=soil_data, cropdata=crop_data)
     _override_rooting_depth_if_needed(params, soil_data)
+    if tsum_factor is not None:  # cultivar variation: both temperature sums (emergence-anthesis, anthesis-maturity) scaled by the same factor
+        for name in ("TSUM1", "TSUM2"):
+            params.set_override(name, float(params[name]) * float(tsum_factor))
     return params
 
 

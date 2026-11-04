@@ -51,6 +51,7 @@ def generate_wofost_episode(
     pre_season_days: Optional[int] = None,
     write_summary: bool = True,
     model_name: Optional[str] = None,
+    tsum_factor: Optional[float] = None,
 ) -> dict:
     """Run one end-to-end WOFOST/PCSE simulation episode for a location/year
     and cache the daily driver+output trajectory (with CYBench-aligned
@@ -132,6 +133,7 @@ def generate_wofost_episode(
         crop_name=crop,
         variety_name=variety_name,
         soil_data=soil_data,
+        tsum_factor=tsum_factor,
     )
     agromanagement = build_agromanagement(
         crop_name=crop,

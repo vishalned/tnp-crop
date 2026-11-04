@@ -3,6 +3,7 @@
 #
 #   bash scripts/slurm/submit_wofost_run.sh omfix        # rainfed (water-limited), soil from the raw SoilGrids table: wofost_eu_grid_dense_omfix
 #   bash scripts/slurm/submit_wofost_run.sh pp           # fully irrigated (potential production), no soil:        wofost_eu_grid_dense_pp
+#   bash scripts/slurm/submit_wofost_run.sh tsum         # omfix + cultivar variation (TSUM1, TSUM2 x U(0.8, 1.2) per location): wofost_eu_grid_dense_tsum
 #   TEST=1 bash scripts/slurm/submit_wofost_run.sh omfix # 12 locations, one small chunk, written to <run>_test
 #
 # A variant is a RAW folder plus the settings of run_wofost_chunks.sh (soil table, offline weather, generate args, what is packed). Add one for a new
@@ -18,9 +19,10 @@ SOIL_RAW=$ROOT/data/raw/soilgrids_raw/soilgrids_raw_maize_eu27_dense700_s42.parq
 LOGS=$REPO/slurm_logs
 SBATCH=${SBATCH:-sbatch}   # SBATCH="echo sbatch" prints the commands (dry run)
 
-case "${1:?variant: omfix | pp}" in
+case "${1:?variant: omfix | pp | tsum}" in
     omfix) RUN=wofost_eu_grid_dense_omfix; SOIL_TABLE=$SOIL_RAW; OFFLINE_WEATHER=1; GEN_ARGS=""; PACK="maize soil" ;;
     pp)    RUN=wofost_eu_grid_dense_pp;    SOIL_TABLE="";        OFFLINE_WEATHER=1; GEN_ARGS="--model-name Wofost81_PP"; PACK="maize" ;;
+    tsum)  RUN=wofost_eu_grid_dense_tsum;  SOIL_TABLE=$SOIL_RAW; OFFLINE_WEATHER=1; GEN_ARGS="--tsum-factor-range 0.8 1.2 --tsum-seed 0"; PACK="maize soil" ;;
     *) echo "unknown variant $1"; exit 1 ;;
 esac
 LOC_FILE=$LOCATIONS; [ "${LOCATIONS:0:1}" = "/" ] || LOC_FILE=$REPO/$LOCATIONS

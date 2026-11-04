@@ -1,0 +1,4 @@
+- file: cultivar_tsum_seed0.png
+  title: "CY-Bench walk-forward, 18 European maize countries: cultivar variation (pretraining seed 0)"
+  seed: 0
+  runs: [tabicl_default, scm_control, wofost_eu_grid, wofost_dense_old_soil, wofost_omfix, loguniform, cultivar_tsum]

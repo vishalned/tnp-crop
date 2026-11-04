@@ -20,7 +20,7 @@ where there are 3, else seed 0. Default TabICL: 0.214 / 0.296.
 | `context_years` | Does the prior help when only the last 2, 3 or 5 years are context? (DE FR HU ES; Senegal with all years.) | - | 0 | WOFOST models ahead of default TabICL in anomaly r at every length; NRMSE gain small | done; needs the benchmark branch context-years | experiments/context_years |
 | `permuted_yields` | Is the WOFOST gain real, or what any extra pretraining gives? Shuffle the yields within each training table. | sanity_permuted_yields | 0 | 0.241 / 0.020: clearly worse than default TabICL, so the gain comes from the feature -> yield link | done; one seed | experiments/permuted_yields |
 | `regional_subsets` | Is the gain from the whole of Europe or from one part? Pretrain on NW, CE, south or FR/BE/DK only. | sanity_regions_nw, _ce, _south, _frbedk | 0 | NW 0.211 / 0.314; CE 0.211 / 0.334; south 0.214 / 0.316; FR/BE/DK 0.207 / 0.317; all 0.212 / 0.313 | done; one seed each | experiments/regional_subsets |
-| `cultivar_tsum` | Scale TSUM1 and TSUM2 by one factor ~ U(0.8, 1.2) per location in the simulation: more diversity in the prior. | exp_7_cultivar_tsum | 0 | running (branch cultivar_tsum_exp) | in progress | experiments/cultivar_tsum (not merged yet) |
+| `cultivar_tsum` | Scale TSUM1 and TSUM2 by one factor ~ U(0.8, 1.2) per location in the simulation: more diversity in the prior. | exp_7_cultivar_tsum | 0 | seed 0 done | 1 seed only: lower NRMSE and higher anomaly r than log-uniform | experiments/cultivar_tsum |
 | `feature_importance` | Which feature groups do default TabICL, the SCM control and the WOFOST model use? | - | - | analysis/feature_importance/results | done | analysis/feature_importance |
 
 ## Reading the old reports and scripts
