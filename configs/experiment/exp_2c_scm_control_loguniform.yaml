@@ -1,0 +1,9 @@
+# @package _global_
+# The SCM control used for everything on the densified OM-fix table: prior (SCM) tables with the shapes the log-uniform crop sampler draws on the
+# OM-fix table, the same run step by step as exp_2a (3 seeds).
+defaults:
+  - override /sampler: loguniform
+  - override /source: prior_matched
+name: exp_2c_scm_control_loguniform/scm_seed${seed}
+data:
+  table: ${paths.tables.omfix}

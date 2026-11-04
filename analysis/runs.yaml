@@ -32,3 +32,7 @@ regions_south:
   {label: "south only: ES PT IT EL", experiment: sanity_regions_south, setting: "tabicl_wofost:wofost", color: "#e7298a"}
 regions_frbedk:
   {label: "FR BE DK only", experiment: sanity_regions_frbedk, setting: "tabicl_wofost:wofost", color: "#17becf"}
+scm_control_loguniform:
+  {label: "SCM control (log-uniform shapes)", experiment: exp_2c_scm_control_loguniform, setting: "tabicl_wofost:scm", color: "#f2c9a0"}
+irrigation_map_tsum:
+  {label: "+ TSUM + irrigation map", experiment: exp_8_irrigation_map_tsum, setting: "tabicl_wofost:wofost", color: "#2a78d6"}

@@ -1,0 +1,8 @@
+# @package _global_
+# Irrigation map over the cultivar-variation table: irrigated locations (MIRCA-OS 2015 map) take the PP simulation with the same TSUM factor as their
+# rainfed one, the others the rainfed one; log-uniform points (3 seeds).
+defaults:
+  - override /sampler: loguniform
+name: exp_8_irrigation_map_tsum/wofost_seed${seed}
+data:
+  table: ${paths.tables.irrigation_map_tsum}

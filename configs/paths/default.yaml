@@ -8,3 +8,4 @@ tables:                                          # processed WOFOST tables (wofo
   omfix: ${paths.root}/wofost_eu_grid_dense_omfix/processed/wofost_maize_daily.parquet      # densified EU grid, OM = SOC / 0.58 (the base table)
   irrigation_map: ${paths.root}/wofost_eu_grid_dense_irrmap/processed/wofost_maize_daily.parquet  # omfix, irrigated where the MIRCA-OS map says
   tsum: ${paths.root}/wofost_eu_grid_dense_tsum/processed/wofost_maize_daily.parquet        # omfix with TSUM1 / TSUM2 x U(0.8, 1.2) per location
+  irrigation_map_tsum: ${paths.root}/wofost_eu_grid_dense_irrmap_tsum/processed/wofost_maize_daily.parquet  # tsum, irrigated (PP with the same TSUM factors) where the map says
