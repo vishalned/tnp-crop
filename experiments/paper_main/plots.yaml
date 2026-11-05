@@ -1,0 +1,12 @@
+- file: main_comparison.png
+  title: "CY-Bench walk-forward, 18 European maize countries (mean over 3 pretraining seeds)"
+  seed: mean
+  metrics: [nrmse, r2, anomaly_r, temporal_r]
+  figsize: [16, 13]
+  runs:
+    - tabicl_default
+    - scm_control_loguniform
+    - {use: wofost_omfix, label: "WOFOST, rainfed (uniform points)"}
+    - {use: loguniform, label: "+ log-uniform points per table"}
+    - {use: cultivar_tsum, label: "+ cultivar variation (TSUM)"}
+    - {use: irrigation_map_tsum, label: "+ irrigation map"}

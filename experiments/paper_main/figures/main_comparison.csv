@@ -1,0 +1,7 @@
+run,nrmse_mean,r2_mean,anomaly_r_mean,temporal_r_mean
+TabICL default,0.2142,-0.0748,0.2962,0.6086
+SCM control (log-uniform shapes),0.2155,-0.0898,0.251,0.5417
+"WOFOST, rainfed (uniform points)",0.2103,-0.0365,0.327,0.6364
++ log-uniform points per table,0.2089,-0.0123,0.3587,0.6113
++ cultivar variation (TSUM),0.2023,0.0655,0.3824,0.6741
++ irrigation map,0.2004,0.0786,0.3915,0.7015

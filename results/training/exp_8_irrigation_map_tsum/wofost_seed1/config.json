@@ -1,0 +1,72 @@
+{
+  "paths": {
+    "root": "/projects/prjs1788/tnp-crop",
+    "runs": "/projects/prjs1788/tnp-crop/nanotabicl",
+    "tables": {
+      "fr_be_dk": "/projects/prjs1788/tnp-crop/processed/wofost_maize_daily.parquet",
+      "eu_grid": "/projects/prjs1788/tnp-crop/wofost_eu_grid/processed/wofost_maize_daily.parquet",
+      "dense_old_soil": "/projects/prjs1788/tnp-crop/wofost_eu_grid_dense/processed/wofost_maize_daily.parquet",
+      "omfix": "/projects/prjs1788/tnp-crop/wofost_eu_grid_dense_omfix/processed/wofost_maize_daily.parquet",
+      "irrigation_map": "/projects/prjs1788/tnp-crop/wofost_eu_grid_dense_irrmap/processed/wofost_maize_daily.parquet",
+      "tsum": "/projects/prjs1788/tnp-crop/wofost_eu_grid_dense_tsum/processed/wofost_maize_daily.parquet",
+      "irrigation_map_tsum": "/projects/prjs1788/tnp-crop/wofost_eu_grid_dense_irrmap_tsum/processed/wofost_maize_daily.parquet"
+    }
+  },
+  "model": {
+    "init": "official",
+    "size": "small"
+  },
+  "data": {
+    "table": "/projects/prjs1788/tnp-crop/wofost_eu_grid_dense_irrmap_tsum/processed/wofost_maize_daily.parquet",
+    "target": "yield_t_per_ha",
+    "horizon": "eos",
+    "train_years": [
+      2005,
+      2016
+    ],
+    "val_years": [
+      2017,
+      2018
+    ],
+    "episodes": "structured",
+    "countries": null,
+    "min_points": 10,
+    "max_points": null,
+    "max_rows": 4096,
+    "min_context_years": 5,
+    "max_context_years": 11
+  },
+  "sampler": {
+    "_target_": "nanotabicl.samplers.LogUniformPoints",
+    "min_points": 1
+  },
+  "source": {
+    "prior_fraction": 0.0,
+    "prior_shapes": "random",
+    "shape_seed_offset": 0,
+    "prior_max_rows": 1024,
+    "prior_max_features": 100,
+    "num_workers": 4
+  },
+  "recipe": {
+    "steps": 2000,
+    "stop_at": null,
+    "save_steps": [],
+    "batch_size": 8,
+    "micro_batch_size": 1,
+    "checkpoint_activations": true,
+    "lr": 1e-05,
+    "warmup": 200,
+    "warmup_fraction": 0.1,
+    "weight_decay": 0.01,
+    "grad_clip": 1.0,
+    "eval_every": 500,
+    "log_every": 50
+  },
+  "name": "exp_8_irrigation_map_tsum/wofost_seed1",
+  "seed": 1,
+  "device": "auto",
+  "hf_cache_dir": null,
+  "transforms": {},
+  "out_dir": "/projects/prjs1788/tnp-crop/nanotabicl/exp_8_irrigation_map_tsum/wofost_seed1"
+}

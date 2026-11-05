@@ -1,0 +1,6 @@
+run,nrmse_mean,anomaly_r_mean
+TabICL default,0.2142,0.2962
+SCM control (log-uniform shapes),0.2155,0.251
+"WOFOST, densified (OM fix, new soil)",0.2103,0.327
++ log-uniform points per table,0.2089,0.3587
+"+ cultivar variation (TSUM x U(0.8, 1.2))",0.2023,0.3824
