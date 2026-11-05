@@ -1,7 +1,7 @@
-run,nrmse_mean,r2_mean,anomaly_r_mean,temporal_r_mean
-TabICL default,0.2142,-0.0748,0.2962,0.6086
-SCM control (log-uniform shapes),0.2155,-0.0898,0.251,0.5417
-"WOFOST, rainfed (uniform points)",0.2103,-0.0365,0.327,0.6364
-+ log-uniform points per table,0.2089,-0.0123,0.3587,0.6113
-+ cultivar variation (TSUM),0.2023,0.0655,0.3824,0.6741
-+ irrigation map,0.2004,0.0786,0.3915,0.7015
+run,nrmse_mean,r2_mean,anomaly_r_mean,temporal_r_mean,nrmse_mean_seed_std,r2_mean_seed_std,anomaly_r_mean_seed_std,temporal_r_mean_seed_std
+TabICL default,0.2142,-0.0748,0.2962,0.6086,,,,
+SCM control (log-uniform shapes),0.2155,-0.0898,0.251,0.5417,0.002,0.0254,0.0191,0.0241
+"WOFOST, rainfed (uniform points)",0.2103,-0.0365,0.327,0.6364,0.001,0.0144,0.0029,0.0041
++ log-uniform points per table,0.2089,-0.0123,0.3587,0.6113,0.0027,0.0366,0.0123,0.0253
++ cultivar variation (TSUM),0.2023,0.0655,0.3824,0.6741,0.0012,0.0106,0.004,0.0141
++ irrigation map,0.2004,0.0786,0.3915,0.7015,0.0014,0.0164,0.0109,0.015

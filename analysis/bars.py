@@ -46,14 +46,28 @@ def values(runs: pd.DataFrame, experiment: str, setting: str, seed="mean") -> pd
     return out
 
 
+def seed_std(runs: pd.DataFrame, experiment: str, setting: str):
+    """Standard deviation over the pretraining seeds (sample std, ddof=1): per country, and of the mean over the countries (the mean of each seed's
+    country values first, then the std over the seeds). None for a run without seeds (the default TabICL) or with one seed."""
+    d = runs[(runs.experiment == experiment) & (runs.setting == setting)]
+    if d.seed.nunique() < 2:
+        return None
+    per_country = d.groupby("country")[list(METRICS)].std(ddof=1)
+    of_mean = d.groupby("seed")[list(METRICS)].mean().std(ddof=1)
+    return per_country, of_mean
+
+
 def draw(entries: list, path: str, title: str, weighted: bool = False, figsize=(16, 7.8), title_size=None,
-         metrics=("nrmse", "anomaly_r")) -> pd.DataFrame:
-    """entries: [{"label", "color", "values"}]; one row of bars per metric (two by default). Returns the mean (and weighted mean) of each run."""
+         metrics=("nrmse", "anomaly_r"), errorbars: bool = False) -> pd.DataFrame:
+    """entries: [{"label", "color", "values", "std" (optional: seed_std)}]; one row of bars per metric (two by default). Returns the mean (and
+    weighted mean) of each run. errorbars=True: a line of +-1 std over the pretraining seeds on each bar of a run with seeds (not in the weighted group)."""
     countries = sorted(entries[0]["values"].index)
     summary = []
     for e in entries:
         v = e["values"].loc[countries]
         row = {"run": e["label"], **{f"{m}_mean": v[m].mean() for m in metrics}}
+        if errorbars and e.get("std") is not None:
+            row.update({f"{m}_mean_seed_std": e["std"][1][m] for m in metrics})
         if weighted:
             row.update({f"{m}_weighted": np.average(v[m], weights=v.n_region_years) for m in metrics})
         summary.append(row)
@@ -73,9 +87,14 @@ def draw(entries: list, path: str, title: str, weighted: bool = False, figsize=(
                 v.append(summary.loc[e["label"], f"{metric}_weighted"])
             pos = x + (i - (n - 1) / 2) * w
             ax.bar(pos, v, w, color=e["color"], label=e["label"])
-            for p, val in zip(pos[-n_groups:], v[-n_groups:]):  # the numbers on the mean group(s)
+            err = np.zeros(len(v))
+            if errorbars and e.get("std") is not None:
+                err[:len(countries)] = e["std"][0].loc[countries, metric].to_numpy()
+                err[len(countries)] = e["std"][1][metric]
+                ax.errorbar(pos, v, yerr=err, fmt="none", ecolor="#333333", elinewidth=0.7, capsize=1.5, capthick=0.7)
+            for p, val, er in zip(pos[-n_groups:], v[-n_groups:], err[-n_groups:]):  # the numbers on the mean group(s)
                 off = offset if not weighted else offset * (1 if val >= 0 else -2.5)
-                ax.text(p, val + off, f"{val:.3f}", ha="center", fontsize=5.5 if weighted else 6, rotation=90)
+                ax.text(p, val + off + (er if val >= 0 else -er), f"{val:.3f}", ha="center", fontsize=5.5 if weighted else 6, rotation=90)
         ax.axvline(len(countries) - 0.3, color="k", lw=0.7, ls=":")
         ax.axhline(0, color="k", lw=0.6)
         ax.set_ylabel(ylabel)

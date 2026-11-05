@@ -1,6 +1,7 @@
 - file: main_comparison.png
   title: "CY-Bench walk-forward, 18 European maize countries (mean over 3 pretraining seeds)"
   seed: mean
+  errorbars: true
   metrics: [nrmse, r2, anomaly_r, temporal_r]
   figsize: [16, 13]
   runs:
